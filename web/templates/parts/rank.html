@@ -1,0 +1,106 @@
+{{define "rank"}}
+<div class="card">
+  <div class="rank-head">
+    <h3>Platzierung</h3>
+    <span class="count">{{len .Plain}} von {{.ActivePlain}} fertig bewertet</span>
+  </div>
+  {{if .Plain}}
+  <table>
+    <thead>
+      <tr>
+        <th class="num">Platz</th><th>Name</th><th>Verein</th>
+        {{range seq .NumJ}}<th class="num">R{{.}}</th>{{end}}
+        <th class="num">Summe</th>
+      </tr>
+    </thead>
+    <tbody>
+    {{range $row := .Plain}}
+      <tr>
+        <td class="num rank-cell">{{$row.Rank}}</td>
+        <td class="name-cell"><span class="startnr">{{$row.P.StartNr}}</span>{{$row.P.Name}}</td>
+        <td class="verein-cell">{{$row.P.Verein}}</td>
+        {{range $i, $v := $row.Values}}
+          <td class="num">
+            {{if eq $v -1}}·
+            {{else if or (eq $i $row.LowIdx) (eq $i $row.HighIdx)}}<span class="score-dropped">{{$v}}</span>
+            {{else}}{{$v}}
+            {{end}}
+          </td>
+        {{end}}
+        <td class="num"><span class="total-val">{{$row.Total}}</span></td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="panel-hint">Noch keine komplette Wertung – die Rangliste füllt sich, sobald 7/7 Noten vorliegen.</p>
+  {{end}}
+</div>
+<div class="card">
+  <div class="rank-head">
+    <h3><span class="star">★</span> Platzierung (Stern)</h3>
+    <span class="count">{{len .Star}} von {{.ActiveStar}} fertig bewertet</span>
+  </div>
+  {{if .Star}}
+  <table>
+    <thead>
+      <tr>
+        <th class="num">Platz</th><th>Name</th><th>Verein</th>
+        {{range seq .NumJ}}<th class="num">R{{.}}</th>{{end}}
+        <th class="num">Summe</th>
+      </tr>
+    </thead>
+    <tbody>
+    {{range $row := .Star}}
+      <tr>
+        <td class="num rank-cell">{{$row.Rank}}</td>
+        <td class="name-cell"><span class="startnr">{{$row.P.StartNr}}</span><span class="star">★</span> {{$row.P.Name}}</td>
+        <td class="verein-cell">{{$row.P.Verein}}</td>
+        {{range $i, $v := $row.Values}}
+          <td class="num">
+            {{if eq $v -1}}·
+            {{else if or (eq $i $row.LowIdx) (eq $i $row.HighIdx)}}<span class="score-dropped">{{$v}}</span>
+            {{else}}{{$v}}
+            {{end}}
+          </td>
+        {{end}}
+        <td class="num"><span class="total-val">{{$row.Total}}</span></td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="panel-hint">Noch keine komplette Wertung.</p>
+  {{end}}
+</div>
+{{if .Pending}}
+<div class="card">
+  <div class="rank-head">
+    <h3>In Bewertung</h3>
+    <span class="count">noten unvollständig – außerhalb der Platzierung</span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th class="num">Noten</th><th>Name</th><th>Verein</th>
+        {{range seq .NumJ}}<th class="num">R{{.}}</th>{{end}}
+        <th class="num">&nbsp;</th>
+      </tr>
+    </thead>
+    <tbody>
+    {{range $row := .Pending}}
+      <tr class="pending">
+        <td class="num"><span class="badge progress">{{$row.N}}/{{$.NumJ}}</span></td>
+        <td class="name-cell"><span class="startnr">{{$row.P.StartNr}}</span>{{star $row.P.Starred}} {{$row.P.Name}}</td>
+        <td class="verein-cell">{{$row.P.Verein}}</td>
+        {{range $i, $v := $row.Values}}
+          <td class="num">{{if eq $v -1}}·{{else}}{{$v}}{{end}}</td>
+        {{end}}
+        <td class="num">–</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+{{end}}

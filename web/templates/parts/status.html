@@ -1,0 +1,35 @@
+{{define "status"}}
+{{if .Sched.Finished}}
+<div class="card now-card" style="border-left-color: var(--green)">
+  <div class="label" style="color: var(--green)">Fertig</div>
+  <div class="name">Alle Tänze bewertet ✓</div>
+  {{if .Sched.BlockEnd}}<div class="meta">Letzte Note um <b>{{fmtHMS .Sched.BlockEnd}}</b></div>{{end}}
+</div>
+{{else if .Sched.Current}}
+{{with .Sched.Current}}
+<div class="card now-card">
+  <div class="label">Jetzt an der Reihe</div>
+  <div class="name">{{star .Starred}} {{.StartNr}} · {{.Name}}</div>
+  <div class="verein">{{.Verein}}</div>
+  {{if gt .NumScores 0}}
+    <div class="meta">Wird bewertet: <b>{{.NumScores}}/{{$.NumJ}}</b> Noten
+      {{if .EndEst}} · fertig ca. <b>{{fmtHM .EndEst}}</b>{{end}}</div>
+    <div class="progress"><div class="fill" style="width: {{pct .NumScores $.NumJ}}%"></div></div>
+  {{else}}
+    <div class="meta">Noch nicht angetreten · Start ≈ jetzt
+      {{if .EndEst}} · fertig ca. <b>{{fmtHM .EndEst}}</b>{{end}}</div>
+    <div class="progress"><div class="fill" style="width: 0%"></div></div>
+  {{end}}
+  {{if $.Sched.Next}}
+  <div class="next-line">Als Nächstes: <b>{{$.Sched.Next.StartNr}} · {{$.Sched.Next.Name}}</b>
+    ({{$.Sched.Next.Verein}})</div>
+  {{end}}
+</div>
+{{end}}
+{{else}}
+<div class="card now-card">
+  <div class="label">Keine Teilnehmer</div>
+  <div class="name">Disziplin leer</div>
+</div>
+{{end}}
+{{end}}

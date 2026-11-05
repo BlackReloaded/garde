@@ -1,0 +1,46 @@
+{{define "body"}}
+<div class="topbar">
+  <span class="brand">tuniert</span>
+  <span class="live-dot">LIVE</span>
+  <span class="viewpath">{{.Disc.SessionName}} · <b>{{.Disc.CompetitionName}}</b> · <b>{{.Disc.Name}}</b></span>
+  <span class="spacer"></span>
+  <span class="clock" id="clock">--:--:--</span>
+  <span class="navlinks"><a href="/admin">Admin</a></span>
+</div>
+<div class="wrap"
+  hx-get="/partials/refresh?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}"
+  hx-trigger="load, every 5s"
+  hx-swap="none">
+  <div class="card selectors">
+    <label>Session
+      <select hx-get="/" hx-vals='{"s": this.value, "t": "", "d": ""}' hx-target="body" hx-swap="outerHTML" hx-push-url="true">
+        {{range .Sessions}}<option value="{{.ID}}" {{if eq .ID $.SessionID}}selected{{end}}>{{.Name}}</option>
+        {{end}}
+      </select>
+    </label>
+    <label>Turnier
+      <select hx-get="/" hx-vals='{"s": "{{.SessionID}}", "t": this.value, "d": ""}' hx-target="body" hx-swap="outerHTML" hx-push-url="true">
+        {{range .Comps}}<option value="{{.ID}}" {{if eq .ID $.CompID}}selected{{end}}>{{.Name}}</option>
+        {{end}}
+      </select>
+    </label>
+    <label>Disziplin
+      <select hx-get="/" hx-vals='{"s": "{{.SessionID}}", "t": "{{.CompID}}", "d": this.value}' hx-target="body" hx-swap="outerHTML" hx-push-url="true">
+        {{range .Discs}}<option value="{{.ID}}" {{if eq .ID $.DiscID}}selected{{end}}>{{.Name}}</option>
+        {{end}}
+      </select>
+    </label>
+  </div>
+  <div id="topmeta">{{template "topmeta" .}}</div>
+  <div class="grid-main">
+    <div class="col">
+      <div id="statusbar">{{template "status" .}}</div>
+      <div id="scorepanel">{{template "scorepanel" .}}</div>
+    </div>
+    <div class="col">
+      <div id="ranking">{{template "rank" .}}</div>
+      <div id="schedule">{{template "schedule" .}}</div>
+    </div>
+  </div>
+</div>
+{{end}}

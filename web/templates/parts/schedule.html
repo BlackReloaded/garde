@@ -1,0 +1,45 @@
+{{define "schedule"}}
+<div class="card">
+  <div class="rank-head">
+    <h3>Zeitplan &amp; Reihenfolge</h3>
+    <span class="count">Start-Zeiten aus der live gemessenen Taktung</span>
+  </div>
+  {{if .Sched.Entries}}
+  <table class="schedule">
+    <thead>
+      <tr><th class="num">Start</th><th>Name</th><th>Verein</th><th>Status</th><th>Zeit</th></tr>
+    </thead>
+    <tbody>
+    {{range .Sched.Entries}}
+      <tr {{if .IsCurrent}}class="current-row"{{end}}>
+        <td class="num">{{star .Starred}} {{.StartNr}}</td>
+        <td>{{.Name}}</td>
+        <td class="verein-cell">{{.Verein}}</td>
+        <td>
+          {{if .IsCurrent}}
+            {{if gt .NumScores 0}}<span class="badge progress">wird bewertet · {{.NumScores}}/{{$.NumJ}}</span>
+            {{else}}<span class="badge progress">an der Reihe</span>{{end}}
+          {{else if eq .State "complete"}}<span class="badge done">fertig</span>
+          {{else}}<span class="badge">wartet</span>{{end}}
+        </td>
+        <td class="eta">
+          {{if eq .State "complete"}}
+            {{if .EndEst}}✓ {{fmtHMS .EndEst}}{{end}}
+          {{else if .IsCurrent}}
+            {{if gt .NumScores 0}}{{if .EndEst}}fertig ca. {{fmtHMS .EndEst}}{{end}}
+            {{else}}start ≈ jetzt{{end}}
+          {{else if .StartEst}}ca. {{fmtHM .StartEst}}{{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <div class="block-end">
+    Block-Ende ca. <b>{{if .Sched.BlockEnd}}{{fmtHMS .Sched.BlockEnd}}{{else}}–{{end}}</b>
+    · Ø Slot <b>{{.SlotLabel}}</b> · Ø Punktezeit <b>{{.ScoringLabel}}</b>
+  </div>
+  {{else}}
+  <p class="panel-hint">Keine (aktiven) Teilnehmer in dieser Disziplin.</p>
+  {{end}}
+</div>
+{{end}}

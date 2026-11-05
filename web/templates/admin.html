@@ -1,0 +1,222 @@
+{{define "body"}}
+<div class="topbar">
+  <span class="brand">tuniert · Admin</span>
+  <span class="spacer"></span>
+  <span class="navlinks"><a href="/">← Live-Ansicht</a></span>
+</div>
+<div class="wrap">
+  {{if .Flash}}<div class="flash {{if .FlashOK}}ok{{else}}err{{end}}">{{.Flash}}</div>{{end}}
+  <div class="admin-grid">
+    <div class="col">
+
+      <div class="card">
+        <h2>Sessions</h2>
+        <form class="row-form" hx-post="/admin/session/create" hx-target="body" hx-swap="outerHTML">
+          <input type="text" name="name" placeholder="Neue Session (z. B. Stadt 01.02.2027) …" required style="flex:1">
+          <button class="btn primary" type="submit">Anlegen</button>
+        </form>
+        {{range .Sessions}}
+        <div class="row-form">
+          <form class="inline-form" style="display:flex;gap:6px;flex:1;min-width:220px"
+            hx-post="/admin/session/rename" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <input type="text" name="name" value="{{.Name}}" style="flex:1">
+            <button class="btn small" type="submit">Umbenennen</button>
+          </form>
+          <a class="btn small" href="/admin?s={{.ID}}">Öffnen</a>
+          <span class="inline-form">
+            <form hx-post="/admin/session/delete" hx-target="body" hx-swap="outerHTML"
+              hx-confirm="Session mit allen Turnieren, Disziplinen, Teilnehmern und Noten löschen?">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn small danger" type="submit">Löschen</button>
+            </form>
+          </span>
+        </div>
+        {{end}}
+      </div>
+
+      <div class="card">
+        <h2>Turniere</h2>
+        {{if .Comps}}
+        <form class="row-form" hx-post="/admin/comp/create" hx-target="body" hx-swap="outerHTML">
+          <input type="hidden" name="session_id" value="{{.SessionID}}">
+          <input type="text" name="name" placeholder="Neues Turnier (z. B. Junioren) …" required style="flex:1">
+          <button class="btn primary" type="submit">Anlegen</button>
+        </form>
+        {{range .Comps}}
+        <div class="row-form">
+          <form class="inline-form" style="display:flex;gap:6px;flex:1;min-width:200px"
+            hx-post="/admin/comp/rename" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <input type="text" name="name" value="{{.Name}}" style="flex:1">
+            <button class="btn small" type="submit">Umbenennen</button>
+          </form>
+          <a class="btn small" href="/admin?s={{$.SessionID}}&amp;t={{.ID}}">Öffnen</a>
+          <span class="inline-form">
+            <form hx-post="/admin/comp/delete" hx-target="body" hx-swap="outerHTML"
+              hx-confirm="Turnier '{{.Name}}' inkl. Disziplinen &amp; Teilnehmer löschen?">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn small danger" type="submit">Löschen</button>
+            </form>
+          </span>
+        </div>
+        {{end}}
+        {{else}}
+        <p class="panel-hint">Zuerst eine Session anlegen oder öffnen.</p>
+        {{end}}
+      </div>
+
+      <div class="card">
+        <h2>Disziplinen &amp; Zeiten</h2>
+        {{if .Discs}}
+        <form class="row-form" hx-post="/admin/disc/create" hx-target="body" hx-swap="outerHTML">
+          <input type="hidden" name="comp_id" value="{{.CompID}}">
+          <input type="text" name="name" placeholder="Neue Disziplin (z. B. Solo weiblich) …" required style="flex:1">
+          <button class="btn primary" type="submit">Anlegen</button>
+        </form>
+        {{range .Discs}}
+        <fieldset style="margin-bottom:10px">
+          <legend>{{.Name}}</legend>
+          <form hx-post="/admin/disc/update" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <div class="row-form">
+              <input type="text" name="name" value="{{.Name}}" style="flex:1;min-width:160px" required>
+              <label style="font-size:12px;color:var(--muted)">Max. Tanz (s)
+                <input type="number" name="max_dance_sec" value="{{.MaxDanceSec}}" min="0" title="z. B. 180 = 3:00 (BDK)">
+              </label>
+              <label style="font-size:12px;color:var(--muted)">Punktezeit (s)
+                <input type="number" name="scoring_def_sec" value="{{.ScoringDefSec}}" min="0" title="z. B. 720 = 12:00">
+              </label>
+              <label style="font-size:12px;color:var(--muted)">Auftritt (s)
+                <input type="number" name="walk_on_sec" value="{{.WalkOnSec}}" min="0" title="z. B. 120 = 2:00">
+              </label>
+              <label style="font-size:12px;color:var(--muted)">Richter
+                <input type="number" name="num_judges" value="{{.NumJudges}}" min="1" max="13">
+              </label>
+              <button class="btn small" type="submit">Speichern</button>
+            </div>
+          </form>
+          <span class="inline-form" style="display:flex;gap:6px">
+            <a class="btn small" href="/admin?s={{$.SessionID}}&amp;t={{$.CompID}}&amp;d={{.ID}}">Teilnehmer</a>
+            <form hx-post="/admin/disc/delete" hx-target="body" hx-swap="outerHTML"
+              hx-confirm="Disziplin '{{.Name}}' inkl. Teilnehmer &amp; Noten löschen?">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn small danger" type="submit">Löschen</button>
+            </form>
+          </span>
+        </fieldset>
+        {{end}}
+        {{else}}
+        <p class="panel-hint">Zuerst ein Turnier öffnen oder anlegen.</p>
+        {{end}}
+      </div>
+
+    </div>
+    <div class="col">
+
+      <div class="card">
+        <h2>Teilnehmer
+          {{if .Disc}}– {{.Disc.Name}} ({{len .Parts}}){{end}}</h2>
+        {{if .Disc}}
+        <form class="row-form" hx-post="/admin/part/create" hx-target="body" hx-swap="outerHTML">
+          <input type="hidden" name="disc_id" value="{{.DiscID}}">
+          <input type="text" name="start_nr" placeholder="Start" size="5" required title="Startnummer (z. B. 1 oder 001)">
+          <input type="text" name="name" placeholder="Name / Gruppe" style="flex:1;min-width:160px" required>
+          <input type="text" name="verein" placeholder="Verein" style="flex:1;min-width:160px">
+          <label style="font-size:13px"><input type="checkbox" name="starred"> Stern</label>
+          <button class="btn primary" type="submit">Hinzufügen</button>
+        </form>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Start</th><th>Name</th><th>Verein</th>
+              <th class="num">Stern</th><th class="num">Zurückgez.</th><th>Speichern</th><th>Bewegen/Löschen</th>
+            </tr>
+          </thead>
+          <tbody>
+          {{range .Parts}}
+          <tr>
+            <td class="num">{{.SortOrder}}</td>
+            <form style="display:contents" hx-post="/admin/part/update" hx-target="body" hx-swap="outerHTML">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <td><input type="text" name="start_nr" value="{{.StartNr}}" size="4"></td>
+              <td><input type="text" name="name" value="{{.Name}}" {{if .Withdrawn}}class="withdrawn-name"{{end}} style="min-width:170px"></td>
+              <td><input type="text" name="verein" value="{{.Verein}}" style="min-width:190px"></td>
+              <td class="num"><input type="checkbox" name="starred" {{if .Starred}}checked{{end}}></td>
+              <td class="num"><input type="checkbox" name="withdrawn" {{if .Withdrawn}}checked{{end}}></td>
+              <td><button class="btn small" type="submit">✓</button></td>
+              <td>
+                <span class="inline-form" style="white-space:nowrap">
+                  <form hx-post="/admin/part/move" hx-target="body" hx-swap="outerHTML">
+                    <input type="hidden" name="id" value="{{.ID}}">
+                    <input type="hidden" name="dir" value="-1">
+                    <button class="btn small" type="submit" title="Höher">↑</button>
+                  </form>
+                  <form hx-post="/admin/part/move" hx-target="body" hx-swap="outerHTML">
+                    <input type="hidden" name="id" value="{{.ID}}">
+                    <input type="hidden" name="dir" value="1">
+                    <button class="btn small" type="submit" title="Tiefer">↓</button>
+                  </form>
+                  <form hx-post="/admin/part/delete" hx-target="body" hx-swap="outerHTML"
+                    hx-confirm="'{{.Name}}' löschen (inkl. Noten)?">
+                    <input type="hidden" name="id" value="{{.ID}}">
+                    <button class="btn small danger" type="submit">✕</button>
+                  </form>
+                </span>
+              </td>
+            </form>
+          </tr>
+          {{end}}
+          </tbody>
+        </table>
+        <div style="margin-top:14px" class="danger-zone">
+          <span class="inline-form">
+            <form hx-post="/admin/scores/reset" hx-target="body" hx-swap="outerHTML"
+              hx-confirm="Wirklich ALLE Noten dieser Disziplin löschen?">
+              <input type="hidden" name="disc_id" value="{{.DiscID}}">
+              <button class="btn danger" type="submit">Alle Noten dieser Disziplin zurücksetzen</button>
+            </form>
+          </span>
+        </div>
+        {{else}}
+        <p class="panel-hint">Bitte eine Disziplin auswählen (links „Teilnehmer“).</p>
+        {{end}}
+      </div>
+
+      <div class="card">
+        <h2>CSV Import / Export</h2>
+        <p class="panel-hint">
+          Format: <code>session;turnier;disziplin;startnr;name;verein;star;withdrawn</code>
+          (Trenner <code>;</code> oder <code>,</code>; Kopfzeile optional; Reihenfolge = Startreihenfolge).
+          Vorhandene Strukturen werden nach Name wiederverwendet; Teilnehmer werden pro Startnummer aktualisiert.
+        </p>
+        <form hx-post="/admin/csv/import" hx-target="body" hx-swap="outerHTML">
+          <textarea class="csv" name="csv" rows="8"
+            placeholder="session;turnier;disziplin;startnr;name;verein;star;withdrawn"></textarea>
+          <div class="row-form" style="margin-top:8px">
+            <button class="btn primary" type="submit">Importieren</button>
+          </div>
+        </form>
+        <h2 style="margin-top:18px">Eingebettete Seed-Dateien</h2>
+        {{range .SeedFiles}}
+        <div class="row-form">
+          <code style="font-size:13px;flex:1">{{.}}</code>
+          <span class="inline-form">
+            <form hx-post="/admin/csv/import" hx-target="body" hx-swap="outerHTML">
+              <input type="hidden" name="source" value="seed:{{.}}">
+              <button class="btn small" type="submit">Importieren</button>
+            </form>
+          </span>
+        </div>
+        {{end}}
+        {{if .SessionID}}
+        <div class="row-form" style="margin-top:14px">
+          <a class="btn" href="/admin/csv/export?s={{.SessionID}}">CSV der Session exportieren</a>
+        </div>
+        {{end}}
+      </div>
+
+    </div>
+  </div>
+</div>
+{{end}}
