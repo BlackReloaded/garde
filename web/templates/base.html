@@ -3,22 +3,25 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1a2c">
 <title>tuniert</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js" defer></script>
 <script>
 // Lokale Uhr + Fokus-Verwaltung für die Punkteeingabe.
-document.addEventListener('DOMContentLoaded', function () {
-  function tick() {
-    var c = document.getElementById('clock');
-    if (!c) return;
-    var t = new Date();
-    c.textContent = [t.getHours(), t.getMinutes(), t.getSeconds()]
-      .map(function (x) { return String(x).padStart(2, '0'); }).join(':');
+// Listener hängen an document (nicht body): Bei Vollseitenswaps (Disziplin-
+// Wechsel) bleibt document erhalten, der Body-Inhalt wird ersetzt.
+(function () {
+  var drafts = {}; // "teilnehmerID|richter" -> noch nicht abgeschickter Wert
+
+  function judgeKey(input) {
+    var form = input.closest ? input.closest('form') : null;
+    if (!form) return null;
+    var pid = form.querySelector('input[name=participant_id]');
+    var j = form.querySelector('input[name=judge]');
+    return pid && j ? pid.value + '|' + j.value : null;
   }
-  tick();
-  setInterval(tick, 1000);
 
   function focusNextJudge() {
     var panel = document.getElementById('scorepanel');
@@ -28,13 +31,88 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!inputs[i].value) { inputs[i].focus(); return; }
     }
   }
-  document.body.addEventListener('htmx:afterRequest', function (e) {
+
+  // Noch nicht abgeschickte Werte nach einem Panel-Neuraster wieder einpflegen
+  // (z. B. wenn ein anderes Feld vor dem Abspeichern des ersten bearbeitet
+  // wurde). Gespeicherte Werte (Serverwert vorhanden) werden nicht überschrieben.
+  function restoreDrafts() {
+    var panel = document.getElementById('scorepanel');
+    if (!panel) return;
+    panel.querySelectorAll('input[name=value]').forEach(function (inp) {
+      var key = judgeKey(inp);
+      if (key === null) return;
+      var d = drafts[key];
+      if (d === undefined) return;
+      if (inp.value === '') inp.value = d;
+      else delete drafts[key];
+    });
+  }
+
+  // Eingaben im Panel pro Teilnehmer+Richter merken.
+  document.addEventListener('input', function (e) {
+    var t = e.target;
+    if (!t || t.name !== 'value' || !t.closest || !t.closest('#scorepanel')) return;
+    var key = judgeKey(t);
+    if (key === null) return;
+    if (t.value === '') delete drafts[key];
+    else drafts[key] = t.value;
+  });
+
+  // Nach jedem Request: (ggf.) Drafts wiederherstellen; nach /score das
+  // nächste freie Richter-Feld fokussieren.
+  document.addEventListener('htmx:afterRequest', function (e) {
     var cfg = e.detail && e.detail.requestConfig;
     var path = cfg ? cfg.path : '';
+    restoreDrafts();
     if (path.indexOf('/score') >= 0) { setTimeout(focusNextJudge, 80); }
   });
-  setTimeout(focusNextJudge, 300);
-});
+
+  // Läuft bei einem View-Wechsel (z. B. Disziplin) noch ein Request an
+  // /partials/refresh der alten Ansicht, wird er abgebrochen – sonst würde
+  // seine Antwort die neue Ansicht temporär mit alten Daten überschreiben.
+  var inflight = new WeakMap(); // Element -> xhr (nur Refresh-Requests)
+  document.addEventListener('htmx:beforeRequest', function (e) {
+    var elt = e.target;
+    if (elt && elt.getAttribute &&
+        (elt.getAttribute('hx-get') || '').indexOf('/partials/refresh') === 0) {
+      inflight.set(elt, e.detail && e.detail.xhr);
+    }
+  });
+  document.addEventListener('htmx:beforeCleanupElement', function (e) {
+    var t = e.target;
+    if (!t || typeof t !== 'object') return;
+    var xhr = inflight.get(t);
+    if (xhr) { inflight.delete(t); try { xhr.abort(); } catch (_) {} }
+  });
+
+  function tick() {
+    var c = document.getElementById('clock');
+    if (!c) return;
+    var t = new Date();
+    c.textContent = [t.getHours(), t.getMinutes(), t.getSeconds()]
+      .map(function (x) { return String(x).padStart(2, '0'); }).join(':');
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    tick();
+    setInterval(tick, 1000);
+    setTimeout(focusNextJudge, 300);
+
+    // Fokus nach Panel-Ersatz (View-Wechsel oder Teilnehmerwechsel):
+    // Das fokussierte Eingabefeld liegt im alten DOM-Teil, den HTMX
+    // ersetzt – ohne Zutun würde der Fokus auf <body> fallen. Sobald der
+    // #scorepanel-Knoten durch einen Swap ersetzt wurde, legen wir den
+    // Fokus auf das nächste freie Richter-Feld des neuen Panels.
+    var panelEl = document.getElementById('scorepanel');
+    new MutationObserver(function () {
+      var cur = document.getElementById('scorepanel');
+      if (cur && cur !== panelEl) {
+        panelEl = cur;
+        setTimeout(focusNextJudge, 80);
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+})();
 </script>
 </head>
 <body>

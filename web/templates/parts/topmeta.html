@@ -1,7 +1,7 @@
 {{define "topmeta"}}
 <div class="topmeta">
   {{if .LastScoreAt}}Letzte Note: <b>{{fmtHMS .LastScoreAt}}</b> · {{end}}
-  Ø Slot: <b>{{.SlotLabel}}</b> · Ø Punktezeit: <b>{{.ScoringLabel}}</b>
+  Ø Slot: <b>{{.SlotLabel}}</b>
   {{if .Finished}}· <b>Block fertig</b>{{end}}
 </div>
 {{end}}

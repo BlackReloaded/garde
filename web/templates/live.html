@@ -11,24 +11,40 @@
   hx-get="/partials/refresh?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}"
   hx-trigger="load, every 5s"
   hx-swap="none">
+  <!-- Selektoren als HTMX-Formulare (hx-trigger="change"): der gewählte Wert
+       wird per Formular-Serialisierung gesendet – hx-vals mit this.value
+       funktioniert in HTMX 2 nicht (JSON.parse scheitert, dieser Wert geht
+       komplett verloren). display:contents erhält das Label-Layout. -->
   <div class="card selectors">
     <label>Session
-      <select hx-get="/" hx-vals='{"s": this.value, "t": "", "d": ""}' hx-target="body" hx-swap="outerHTML" hx-push-url="true">
-        {{range .Sessions}}<option value="{{.ID}}" {{if eq .ID $.SessionID}}selected{{end}}>{{.Name}}</option>
-        {{end}}
-      </select>
+      <form hx-get="/" hx-trigger="change" hx-target="body" hx-swap="outerHTML" hx-push-url="true" style="display:contents">
+        <input type="hidden" name="t" value="">
+        <input type="hidden" name="d" value="">
+        <select name="s">
+          {{range .Sessions}}<option value="{{.ID}}" {{if eq .ID $.SessionID}}selected{{end}}>{{.Name}}</option>
+          {{end}}
+        </select>
+      </form>
     </label>
     <label>Turnier
-      <select hx-get="/" hx-vals='{"s": "{{.SessionID}}", "t": this.value, "d": ""}' hx-target="body" hx-swap="outerHTML" hx-push-url="true">
-        {{range .Comps}}<option value="{{.ID}}" {{if eq .ID $.CompID}}selected{{end}}>{{.Name}}</option>
-        {{end}}
-      </select>
+      <form hx-get="/" hx-trigger="change" hx-target="body" hx-swap="outerHTML" hx-push-url="true" style="display:contents">
+        <input type="hidden" name="s" value="{{.SessionID}}">
+        <input type="hidden" name="d" value="">
+        <select name="t">
+          {{range .Comps}}<option value="{{.ID}}" {{if eq .ID $.CompID}}selected{{end}}>{{.Name}}</option>
+          {{end}}
+        </select>
+      </form>
     </label>
     <label>Disziplin
-      <select hx-get="/" hx-vals='{"s": "{{.SessionID}}", "t": "{{.CompID}}", "d": this.value}' hx-target="body" hx-swap="outerHTML" hx-push-url="true">
-        {{range .Discs}}<option value="{{.ID}}" {{if eq .ID $.DiscID}}selected{{end}}>{{.Name}}</option>
-        {{end}}
-      </select>
+      <form hx-get="/" hx-trigger="change" hx-target="body" hx-swap="outerHTML" hx-push-url="true" style="display:contents">
+        <input type="hidden" name="s" value="{{.SessionID}}">
+        <input type="hidden" name="t" value="{{.CompID}}">
+        <select name="d">
+          {{range .Discs}}<option value="{{.ID}}" {{if eq .ID $.DiscID}}selected{{end}}>{{.Name}}</option>
+          {{end}}
+        </select>
+      </form>
     </label>
   </div>
   <div id="topmeta">{{template "topmeta" .}}</div>

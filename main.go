@@ -1,8 +1,7 @@
 // tuniert – Live-Wertung für Gardetanz-Turniere.
 //
 // Go + HTMX als Single-Binary: SQLite (ohne CGO), HTMX & Templates eingebettet.
-// Bei leerer Datenbank wird die eingebettete Auslosungsliste automatisch
-// importiert (internal/store/seed).
+// Daten werden manuell per CSV-Import geladen (Admin → CSV Import).
 package main
 
 import (
@@ -28,12 +27,6 @@ func main() {
 		log.Fatalf("Datenbank öffnen: %v", err)
 	}
 	defer st.Close()
-
-	if n, err := st.SeedIfEmpty(); err != nil {
-		log.Printf("Seed-Import fehlgeschlagen: %v", err)
-	} else if n > 0 {
-		log.Printf("Leere Datenbank – eingebettete Auslosungsliste importiert (%d Zeilen)", n)
-	}
 
 	app, err := web.New(st, assets)
 	if err != nil {

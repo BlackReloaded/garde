@@ -95,3 +95,33 @@ func TestRank(t *testing.T) {
 		}
 	}
 }
+
+func TestRankOverride(t *testing.T) {
+	ovr := 410
+	entries := []RankEntry{
+		{ID: 1, Scores: []int{80, 90, 70, 95, 85, 60, 75}}, // 400
+		{ID: 2, Scores: []int{70, 80, 60, 85, 75, 50, 65}}, // 350, aber offiziell 410
+		{ID: 3, Scores: []int{82, 91, 71, 95, 84, 60, 75}}, // 403
+	}
+	ranked := Rank([]RankEntry{
+		entries[0],
+		{ID: entries[1].ID, Scores: entries[1].Scores, Override: &ovr},
+		entries[2],
+	})
+	// ID2 führt mit der offiziellen 410, dann ID3 (403), dann ID1 (400).
+	want := []struct {
+		id    int64
+		total int
+		rank  int
+	}{
+		{2, 410, 1},
+		{3, 403, 2},
+		{1, 400, 3},
+	}
+	for i, w := range want {
+		if ranked[i].Entry.ID != w.id || ranked[i].Total != w.total || ranked[i].Rank != w.rank {
+			t.Fatalf("Position %d: got (id=%d, total=%d, rank=%d), want (id=%d, total=%d, rank=%d)",
+				i, ranked[i].Entry.ID, ranked[i].Total, ranked[i].Rank, w.id, w.total, w.rank)
+		}
+	}
+}

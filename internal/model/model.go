@@ -5,16 +5,17 @@ package model
 
 import "time"
 
-// Default-Einstellungen für eine Disziplin (BDK-Anlehnung).
+// Default-Einstellungen für eine Disziplin: 5-Minuten-Takt pro Tanz
+// (1:00 Aufritt + 2:00 Tanz + 2:00 Punktevergabe).
 const (
-	DefaultMaxDanceSec = 180 // 3:00 max. Tanzlänge
-	DefaultScoringSec  = 720 // 12:00 Punktevergabe
-	DefaultWalkOnSec   = 120 // 2:00 Aufritt
+	DefaultMaxDanceSec = 120 // 2:00 max. Tanzlänge
+	DefaultScoringSec  = 120 // 2:00 Punktevergabe
+	DefaultWalkOnSec   = 60  // 1:00 Aufritt
 	DefaultNumJudges   = 7
 	MaxScore           = 100
 )
 
-// Session ist die oberste Ebene (z. B. ein Turniertag / eine Stadt).
+// Session ist die oberste Ebene: ein Jahr (eine Saison), z. B. "2026/27".
 type Session struct {
 	ID        int64
 	Name      string
@@ -55,6 +56,10 @@ type Participant struct {
 	Withdrawn  bool
 	SortOrder  int
 	Scores     []Score
+	// TotalOverride ist die offiziell genannte Gesamtsumme. NULL = Summe
+	// wird aus den Einzelnoten berechnet. Tritt auf, wenn die offiziell
+	// verkündete Summe nicht zur berechneten passt.
+	TotalOverride *int
 }
 
 // Score ist eine Richter-Note (0–100, ganzzahlig).

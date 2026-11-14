@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"tuniert/internal/model"
@@ -102,8 +103,17 @@ func explicitSel(r *http.Request) int64 {
 }
 
 // panelSelection bestimmt den im Panel aktiven Teilnehmer:
-// explizites sel > Cookie > gerade an der Reihe.
-func (a *App) panelSelection(r *http.Request, ld *LiveData) int64 {
+// explizites sel > Cookie > gerade an der Reihe. allowComplete steuert,
+// ob ein vollständig bewerteter Teilnehmer als Auswahl gilt:
+//   - false (Score-POST): Die Score-Formulare senden sel mit. Wird mit
+//     einer Note der 7. der Teilnehmer komplett, muss das Panel auf den
+//     nächsten springen – die (mitgesendete) Auswahl darf dann nicht
+//     mehr greifen.
+//   - true (Seite/Refresh): Manuell gewählte Teilnehmer (Selektor, URL)
+//     werden angezeigt – auch fertige (Korrekturen, offizielle Summe).
+//     Das Cookie ist nur so gesetzt (siehe maybeSetSelCookie), dass eine
+//     manuelle Wahl auch von Pollings erhalten bleibt.
+func (a *App) panelSelection(r *http.Request, ld *LiveData, allowComplete bool) int64 {
 	sel := explicitSel(r)
 	if sel == 0 {
 		if c, err := r.Cookie(selCookieKey); err == nil {
@@ -113,7 +123,7 @@ func (a *App) panelSelection(r *http.Request, ld *LiveData) int64 {
 	if sel != 0 {
 		for i := range ld.Active {
 			p := ld.Active[i]
-			if p.ID == sel && len(p.Scores) < ld.NumJ {
+			if p.ID == sel && (allowComplete || len(p.Scores) < ld.NumJ) {
 				return p.ID
 			}
 		}
@@ -124,7 +134,13 @@ func (a *App) panelSelection(r *http.Request, ld *LiveData) int64 {
 	return 0
 }
 
+// maybeSetSelCookie merkt sich eine explizite Teilnehmerwahl (nur GET –
+// die Score-Formulare senden sel mit, würden aber sonst das Panel auf
+// einem gerade fertiggewordenen Teilnehmer festnageln).
 func (a *App) maybeSetSelCookie(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		return
+	}
 	if sel := explicitSel(r); sel != 0 {
 		http.SetCookie(w, &http.Cookie{
 			Name: selCookieKey, Value: strconv.FormatInt(sel, 10),
@@ -147,12 +163,17 @@ func (a *App) livePage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	a.finalizePanel(ld, a.panelSelection(r, ld))
+	a.finalizePanel(ld, a.panelSelection(r, ld, true))
 	a.render(w, r, http.StatusOK, "live", ld)
 }
 
-// refresh liefert OOB-Partial-Updates für die Live-Ansicht (Polling + nach Score).
-func (a *App) refresh(w http.ResponseWriter, r *http.Request) {
+// refresh liefert OOB-Partial-Updates für die Live-Ansicht (Polling + nach
+// Score). withPanel steuert, ob das Score-Panel neu gerendert wird: Beim
+// Hintergrund-Polling bleibt es unangetastet, damit Fokus und nicht
+// abgeschlossene Eingaben im Panel erhalten bleiben. scorePost=true
+// kennzeichnet die Antwort auf eine Score-POST: dort greift eine Auswahl
+// eines gerade fertig gewordenen Teilnehmers nicht (Auto-Advance).
+func (a *App) refresh(w http.ResponseWriter, r *http.Request, withPanel, scorePost bool) {
 	_, _, d := a.resolveView(r)
 	if d == 0 {
 		http.Error(w, "keine Disziplin vorhanden", http.StatusNotFound)
@@ -164,32 +185,59 @@ func (a *App) refresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	a.finalizePanel(ld, a.panelSelection(r, ld))
-	a.renderOOB(w, ld)
+	a.finalizePanel(ld, a.panelSelection(r, ld, !scorePost))
+	a.renderOOB(w, ld, withPanel)
 }
 
-// score übernimmt eine Einzelnote (value leer = löschen).
+// score übernimmt eine Einzelnote (value leer = löschen) ODER die
+// offizielle Gesamtsumme (Feld total_override; leer = Überschreibung
+// zurücksetzen).
 func (a *App) score(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "ungültiges Formular", http.StatusBadRequest)
 		return
 	}
 	pid := parseID(r.Form.Get("participant_id"))
-	judge, _ := strconv.Atoi(r.Form.Get("judge"))
-	valueStr := r.Form.Get("value")
-	if pid == 0 || judge < 1 {
-		http.Error(w, "ungültige Parameter", http.StatusBadRequest)
-		return
-	}
 	p, err := a.store.GetParticipant(pid)
 	if err != nil {
 		http.Error(w, "Teilnehmer nicht gefunden", http.StatusNotFound)
 		return
 	}
-	// Disziplin nur zur Plausibilitätsprüfung (Richteranzahl).
 	d, err := a.store.GetDiscipline(p.Discipline)
 	if err != nil {
 		http.Error(w, "Disziplin nicht gefunden", http.StatusNotFound)
+		return
+	}
+
+	// Offizielle Gesamtsumme: zählt die (NumJ-2) gestrichenfreien Noten,
+	// also max. (NumJ-2)*100 Punkte.
+	if _, has := r.Form["total_override"]; has {
+		vs := strings.TrimSpace(r.Form.Get("total_override"))
+		var ovr *int
+		if vs != "" {
+			v, err := strconv.Atoi(vs)
+			maxTotal := (d.NumJudges - 2) * model.MaxScore
+			if maxTotal < 0 {
+				maxTotal = model.MaxScore
+			}
+			if err != nil || v < 0 || v > maxTotal {
+				http.Error(w, fmt.Sprintf("Summe muss 0–%d sein", maxTotal), http.StatusBadRequest)
+				return
+			}
+			ovr = &v
+		}
+		if err := a.store.SetTotalOverride(pid, ovr); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		a.refresh(w, r, true, false)
+		return
+	}
+
+	judge, _ := strconv.Atoi(r.Form.Get("judge"))
+	valueStr := r.Form.Get("value")
+	if pid == 0 || judge < 1 {
+		http.Error(w, "ungültige Parameter", http.StatusBadRequest)
 		return
 	}
 	if judge > d.NumJudges {
@@ -212,12 +260,22 @@ func (a *App) score(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Wird mit dieser Note der Teilnehmer komplett, folgt das Panel
+	// wieder dem natürlichen Ablauf: das Cookie (letzte manuelle Wahl)
+	// zeigt sonst beim nächsten Polling weiter auf den Fertigen.
+	if pp, err := a.store.GetParticipant(pid); err == nil && len(pp.Scores) == d.NumJudges {
+		http.SetCookie(w, &http.Cookie{
+			Name: selCookieKey, Value: "", Path: "/", MaxAge: -1,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
 	// Antwort: komplette OOB-Updates (Status, Ranglisten, Zeitplan, Panel).
-	a.refresh(w, r)
+	a.refresh(w, r, true, true)
 }
 
-// renderOOB rendert die vier Partial-Blöcke mit hx-swap-oob.
-func (a *App) renderOOB(w http.ResponseWriter, ld *LiveData) {
+// renderOOB rendert die Partial-Blöcke mit hx-swap-oob. Das Score-Panel wird
+// nur mit withPanel neu gerendert (s. refresh).
+func (a *App) renderOOB(w http.ResponseWriter, ld *LiveData, withPanel bool) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	writeBlock := func(id string, partial string) {
@@ -228,7 +286,9 @@ func (a *App) renderOOB(w http.ResponseWriter, ld *LiveData) {
 	writeBlock("statusbar", "status")
 	writeBlock("ranking", "rank")
 	writeBlock("schedule", "schedule")
-	writeBlock("scorepanel", "scorepanel")
+	if withPanel {
+		writeBlock("scorepanel", "scorepanel")
+	}
 	writeBlock("topmeta", "topmeta")
 }
 

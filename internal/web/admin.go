@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"tuniert/internal/model"
-	"tuniert/internal/store"
 )
 
 // AdminData ist der Datensatz für die Admin-Ansicht.
@@ -22,7 +21,6 @@ type AdminData struct {
 	Parts     []model.Participant
 	Flash     string
 	FlashOK   bool
-	SeedFiles []string
 }
 
 func (a *App) adminData(r *http.Request) *AdminData {
@@ -39,7 +37,6 @@ func (a *App) adminData(r *http.Request) *AdminData {
 			ad.Parts, _ = a.store.ListParticipants(d)
 		}
 	}
-	ad.SeedFiles = store.SeedFiles()
 	return ad
 }
 
@@ -315,17 +312,7 @@ func (a *App) adminScoresReset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) adminCSVImport(w http.ResponseWriter, r *http.Request) {
-	text := r.FormValue("csv")
-	source := r.FormValue("source")
-	if strings.HasPrefix(source, "seed:") {
-		name := strings.TrimPrefix(source, "seed:")
-		var err error
-		if text, err = store.SeedCSV(name); err != nil {
-			a.respondAdmin(w, r, "Seed-Datei nicht gefunden: "+err.Error(), false)
-			return
-		}
-	}
-	text = strings.TrimSpace(text)
+	text := strings.TrimSpace(r.FormValue("csv"))
 	if text == "" {
 		a.respondAdmin(w, r, "Kein CSV-Inhalt angegeben", false)
 		return

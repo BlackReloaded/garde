@@ -95,6 +95,22 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migration: %w", err)
 		}
 	}
+	// Bestehende DBs: Spalte für die offizielle Gesamtsumme nachrüsten.
+	// "duplicate column name" ist der erwartete Zustand bei neuen DBs.
+	if _, err := s.db.Exec(`ALTER TABLE participant ADD COLUMN total_override INTEGER`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("migration: %w", err)
+	}
+	// Bestehende DBs: alte BDK-Test-Defaults (3:00 Tanz / 12:00 Punktezeit /
+	// 2:00 Aufritt = 17-Minuten-Slot) durch den 5-Minuten-Takt ersetzen.
+	// Nur Disziplinen mit den unveränderten Testwerten; bewusst angepasste
+	// Zeiten bleiben erhalten.
+	if _, err := s.db.Exec(`
+		UPDATE discipline SET max_dance_sec = ?, scoring_def_sec = ?, walk_on_sec = ?
+		WHERE max_dance_sec = 180 AND scoring_def_sec = 720 AND walk_on_sec = 120`,
+		model.DefaultMaxDanceSec, model.DefaultScoringSec, model.DefaultWalkOnSec); err != nil {
+		return fmt.Errorf("migration: %w", err)
+	}
 	return nil
 }
 
@@ -106,12 +122,6 @@ func boolInt(b bool) int {
 }
 
 // ---------- Session ----------
-
-func (s *Store) HasSessions() (bool, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM session`).Scan(&n)
-	return n > 0, err
-}
 
 func (s *Store) ListSessions() ([]model.Session, error) {
 	rows, err := s.db.Query(`SELECT id, name, created_at FROM session ORDER BY id`)
@@ -337,7 +347,7 @@ func (s *Store) DeleteDiscipline(id int64) error {
 
 func (s *Store) ListParticipants(disciplineID int64) ([]model.Participant, error) {
 	rows, err := s.db.Query(
-		`SELECT id, discipline_id, start_nr, name, verein, starred, withdrawn, sort_order
+		`SELECT id, discipline_id, start_nr, name, verein, starred, withdrawn, sort_order, total_override
 		 FROM participant WHERE discipline_id = ? ORDER BY sort_order, id`, disciplineID)
 	if err != nil {
 		return nil, err
@@ -347,12 +357,17 @@ func (s *Store) ListParticipants(disciplineID int64) ([]model.Participant, error
 	for rows.Next() {
 		var p model.Participant
 		var st, w int
+		var to sql.NullInt64
 		if err := rows.Scan(&p.ID, &p.Discipline, &p.StartNr, &p.Name, &p.Verein,
-			&st, &w, &p.SortOrder); err != nil {
+			&st, &w, &p.SortOrder, &to); err != nil {
 			return nil, err
 		}
 		p.Starred = st == 1
 		p.Withdrawn = w == 1
+		if to.Valid {
+			v := int(to.Int64)
+			p.TotalOverride = &v
+		}
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -416,16 +431,33 @@ func (s *Store) ListParticipantsWithScores(disciplineID int64) ([]model.Particip
 func (s *Store) GetParticipant(id int64) (*model.Participant, error) {
 	var p model.Participant
 	var st, w int
+	var to sql.NullInt64
 	err := s.db.QueryRow(
-		`SELECT id, discipline_id, start_nr, name, verein, starred, withdrawn, sort_order
+		`SELECT id, discipline_id, start_nr, name, verein, starred, withdrawn, sort_order, total_override
 		 FROM participant WHERE id = ?`, id).
-		Scan(&p.ID, &p.Discipline, &p.StartNr, &p.Name, &p.Verein, &st, &w, &p.SortOrder)
+		Scan(&p.ID, &p.Discipline, &p.StartNr, &p.Name, &p.Verein, &st, &w, &p.SortOrder, &to)
 	if err != nil {
 		return nil, err
 	}
 	p.Starred = st == 1
 	p.Withdrawn = w == 1
+	if to.Valid {
+		v := int(to.Int64)
+		p.TotalOverride = &v
+	}
 	return &p, nil
+}
+
+// SetTotalOverride setzt die offizielle Gesamtsumme (total = nil löscht
+// die Überschreibung, es wird wieder aus den Noten berechnet).
+func (s *Store) SetTotalOverride(participantID int64, total *int) error {
+	var v any
+	if total != nil {
+		v = *total
+	}
+	_, err := s.db.Exec(
+		`UPDATE participant SET total_override = ? WHERE id = ?`, v, participantID)
+	return err
 }
 
 func (s *Store) CreateParticipant(p model.Participant) (int64, error) {
@@ -529,17 +561,25 @@ func (s *Store) ClearScore(participantID int64, judge int) error {
 	return err
 }
 
-// ResetScores löscht alle Noten einer Disziplin.
+// ResetScores löscht alle Noten einer Disziplin (inkl. offizieller
+// Summen-Überschreibungen – die alten Werte wären sonst veraltet).
 func (s *Store) ResetScores(disciplineID int64) error {
-	_, err := s.db.Exec(`
+	if _, err := s.db.Exec(`
 		DELETE FROM score WHERE participant_id IN
-			(SELECT id FROM participant WHERE discipline_id = ?)`, disciplineID)
+			(SELECT id FROM participant WHERE discipline_id = ?)`, disciplineID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(
+		`UPDATE participant SET total_override = NULL WHERE discipline_id = ?`, disciplineID)
 	return err
 }
 
 // ResetAllScores löscht alle Noten der Datenbank (Admin-Danger-Zone).
 func (s *Store) ResetAllScores() error {
-	_, err := s.db.Exec(`DELETE FROM score`)
+	if _, err := s.db.Exec(`DELETE FROM score`); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`UPDATE participant SET total_override = NULL`)
 	return err
 }
 

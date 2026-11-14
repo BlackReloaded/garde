@@ -38,7 +38,9 @@ func New(st *store.Store, assets embed.FS) (*App, error) {
 	return &App{
 		store:  st,
 		tmpl:   tmpl,
-		static: http.FileServerFS(sub),
+		// FileServerFS erwartet den Pfad relativ zum FS-Root – das /static-
+		// Präfix der Route muss hier abgestreift werden, sonst 404.
+		static: http.StripPrefix("/static/", http.FileServerFS(sub)),
 	}, nil
 }
 
@@ -47,7 +49,11 @@ func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /{$}", a.livePage)
-	mux.HandleFunc("GET /partials/refresh", a.refresh)
+	// Polling ohne sel → Panel bleibt stehen (Fokus/Eingabe erhalten);
+	// sel-Wechsel im Panel → Panel wird mitgerendert.
+	mux.HandleFunc("GET /partials/refresh", func(w http.ResponseWriter, r *http.Request) {
+		a.refresh(w, r, explicitSel(r) != 0, false)
+	})
 	mux.HandleFunc("POST /score", a.score)
 
 	mux.HandleFunc("GET /admin", a.adminPage)

@@ -1,18 +1,21 @@
 {{define "scorepanel"}}
 <div class="card scorepanel">
   <h2>Punkteeingabe</h2>
-  <select name="sel"
-    hx-get="/partials/refresh?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}"
-    hx-vals='{"sel": this.value}'
+  <!-- Als Formular (change → Serialisierung), damit sel gesendet wird
+       (hx-vals='{"sel": this.value}' geht in HTMX 2 verloren). -->
+  <form hx-get="/partials/refresh?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}"
     hx-trigger="change"
     hx-target="body"
-    hx-swap="none">
-    {{range $p := .Active}}
-    <option value="{{$p.ID}}" {{if eq $p.ID $.PanelPID}}selected{{end}}>
-      {{$p.StartNr}} · {{$p.Name}} ({{len $p.Scores}}/{{$.NumJ}})
-    </option>
-    {{end}}
-  </select>
+    hx-swap="none"
+    style="display:contents">
+    <select name="sel">
+      {{range $p := .Active}}
+      <option value="{{$p.ID}}" {{if eq $p.ID $.PanelPID}}selected{{end}}>
+        {{$p.StartNr}} · {{$p.Name}} ({{len $p.Scores}}/{{$.NumJ}})
+      </option>
+      {{end}}
+    </select>
+  </form>
   {{with .PanelPart}}
   <div class="next-line" style="margin-top:0;padding-top:0;border-top:none;margin-bottom:12px">
     <b>{{star .Starred}} {{.StartNr}} · {{.Name}}</b>
@@ -28,16 +31,37 @@
         <input type="hidden" name="sel" value="{{$.PanelPID}}">
         {{$v := index $.PanelValues (sub $j 1)}}
         <input type="number" name="value" min="0" max="100" step="1" inputmode="numeric"
-          autocomplete="off" {{if ge $v 0}}value="{{$v}}" class="filled"{{end}}>
+          pattern="[0-9]*" autocomplete="off" enterkeyhint="done"
+          {{if ge $v 0}}value="{{$v}}" class="filled"{{end}}>
       </form>
     </div>
     {{end}}
   </div>
   {{end}}
+  {{if and .PanelPart (eq .PanelN .NumJ)}}
+  <!-- Offizielle Summe: erscheint erst bei kompletter Wertung, weil die
+       genannte Gesamtzahl sonst keinen Bezug hat. -->
+  <div class="total-row">
+    <span class="total-label">
+      Summe (berechnet) <b>{{.PanelComputed}}</b>
+      {{if .PanelOverride}}· offiziell <b class="off-val">{{.PanelOverride}}</b>{{end}}
+    </span>
+    <form hx-post="/score" hx-target="body" hx-swap="none">
+      <input type="hidden" name="participant_id" value="{{.PanelPID}}">
+      <input type="hidden" name="sel" value="{{.PanelPID}}">
+      <input type="number" name="total_override" min="0" max="500" step="1"
+        inputmode="numeric" autocomplete="off" enterkeyhint="done"
+        placeholder="offizielle Summe"
+        {{if .PanelOverride}}value="{{.PanelOverride}}" class="filled"{{end}}>
+    </form>
+  </div>
+  {{end}}
   <div class="panel-hint">
     Wert 0–100 eingeben und Enter – das nächste freie Feld wird fokussiert.
     Feld leeren + Enter löscht die Note. Auswahl oben: auch bereits bewertete
-    Teilnehmer korrigierbar.
+    Teilnehmer korrigierbar. Bei 7/7: passt die offiziell genannte Gesamtsumme
+    nicht zur berechneten, einfach unten eintragen (Enter); leeres Feld +
+    Enter setzt die Überschreibung zurück.
   </div>
 </div>
 {{end}}

@@ -72,6 +72,8 @@ type RankEntry struct {
 	ID      int64
 	Scores  []int
 	Starred bool
+	// Override ersetzt die berechnete Summe durch die offiziell genannte.
+	Override *int
 }
 
 // RankedEntry ist ein Ranglisteneintrag.
@@ -81,7 +83,8 @@ type RankedEntry struct {
 	Rank  int
 }
 
-// Rank rechnet die Platzierung: absteigend nach Summe, Gleichstand über
+// Rank rechnet die Platzierung: absteigend nach Summe (bei Override
+// gewinnt die offiziell genannte Gesamtsumme), Gleichstand über
 // CompareFull (alle Einzelnoten). Bei weiterem Gleichstand gleicher Platz,
 // der nächste Platz wird übersprungen (1,1,3).
 func Rank(entries []RankEntry) []RankedEntry {
@@ -92,6 +95,9 @@ func Rank(entries []RankEntry) []RankedEntry {
 	ks := make([]keyed, 0, len(entries))
 	for _, e := range entries {
 		total, _ := TotalOf(e.Scores, len(e.Scores))
+		if e.Override != nil {
+			total = *e.Override
+		}
 		ks = append(ks, keyed{e, total})
 	}
 	sort.SliceStable(ks, func(i, j int) bool {

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,6 +90,8 @@ type RankRow struct {
 	Rank     int // 0 = keine (in Bewertung)
 	Complete bool
 	N        int
+	// Official = true, wenn die Summe offiziell überschrieben wurde.
+	Official bool
 }
 
 // LiveData ist das Gesamtdatensatz für die Live-Ansicht.
@@ -113,8 +116,7 @@ type LiveData struct {
 	LastScoreAt  *time.Time
 	Finished     bool
 	NowUnix      int64 // für die Uhr
-	SlotLabel    string
-	ScoringLabel string
+	SlotLabel string
 
 	// PanelPID ist der im Punkteeingabe-Panel ausgewählte Teilnehmer
 	// (Default: gerade an der Reihe; für Korrekturen wählbar).
@@ -128,6 +130,10 @@ type LiveData struct {
 	PanelValues []int
 	PanelN      int
 	PanelPart   *model.Participant
+	// PanelComputed = aus den Noten berechnete Summe (0 wenn unvollständig);
+	// PanelOverride = offiziell genannte Summe (nil = keine Überschreibung).
+	PanelComputed int
+	PanelOverride *int
 }
 
 // render rendert eine vollständige Template-Seite (Seite = "live" oder "admin";
@@ -147,8 +153,9 @@ func (a *App) render(w http.ResponseWriter, r *http.Request, status int, page st
 
 // fullRank ist ein kompletter Ranglisteneintrag vor der Platzierungs-Zuweisung.
 type fullRank struct {
-	row   RankRow
-	total int
+	row      RankRow
+	total    int
+	override *int
 }
 
 // loadLive baut den LiveData für eine Disziplin.
@@ -192,12 +199,20 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	}
 	ld.Discs = allDiscs
 
-	// Aktive Teilnehmer (ohne zurückgezogene).
-	infos := make([]model.ParticipantInfo, 0, len(parts))
+	// Aktive Teilnehmer (ohne zurückgezogene) in Startreihenfolge:
+	// null-padding-Nummern ("001" …) zuerst, dann die übrigen numerisch.
+	activeParts := make([]model.Participant, 0, len(parts))
 	for _, p := range parts {
 		if p.Withdrawn {
 			continue
 		}
+		activeParts = append(activeParts, p)
+	}
+	sort.SliceStable(activeParts, func(i, j int) bool {
+		return startNrLess(activeParts[i], activeParts[j])
+	})
+	infos := make([]model.ParticipantInfo, 0, len(activeParts))
+	for _, p := range activeParts {
 		ld.Active = append(ld.Active, p)
 		sa := make([]model.ScoreAt, 0, len(p.Scores))
 		for _, s := range p.Scores {
@@ -218,7 +233,6 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	ld.Sched = &schedResult
 	ld.Finished = ld.Sched.Finished
 	ld.SlotLabel = fmtDur(ld.Sched.SlotSec)
-	ld.ScoringLabel = fmtDur(ld.Sched.ScoringSec)
 
 	if t, ok, _ := a.store.LastScoreTime(d.ID); ok {
 		ld.LastScoreAt = &t
@@ -262,7 +276,12 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 			total, _ := model.TotalOf(values, d.NumJudges)
 			row.Total = total
 			row.LowIdx, row.HighIdx = lo, hi
-			f := fullRank{row: row, total: total}
+			// Offiziell genannte Summe gewinnt über die berechnete.
+			if p.TotalOverride != nil {
+				row.Total = *p.TotalOverride
+				row.Official = true
+			}
+			f := fullRank{row: row, total: row.Total, override: p.TotalOverride}
 			if p.Starred {
 				star = append(star, f)
 			} else {
@@ -277,9 +296,42 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	ld.Star = a.rankFulls(star, d.NumJudges)
 	// Pending in Startreihenfolge (wie ld.Active).
 	sort.SliceStable(ld.Pending, func(i, j int) bool {
-		return ld.Pending[i].P.SortOrder < ld.Pending[j].P.SortOrder
+		return startNrLess(ld.Pending[i].P, ld.Pending[j].P)
 	})
 	return ld, nil
+}
+
+// startNrClass ordnet Startnummern in drei Gruppen:
+// 0 = null-padding ("001" …) – dieser Block steht immer zuerst,
+// 1 = rein numerisch, 2 = nicht-numerisch. num ist der Zahlenwert.
+func startNrClass(s string) (class int, num int64) {
+	s = strings.TrimSpace(s)
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 2, 0
+	}
+	if len(s) > 1 && s[0] == '0' {
+		return 0, n
+	}
+	return 1, n
+}
+
+// startNrLess vergleicht Teilnehmer nach Startnummer: zuerst der
+// null-padding-Block ("001", "002", …), dann die übrigen numerisch
+// aufsteigend, zuletzt nicht-numerische (alphabetisch); bei
+// Gleichstand innerhalb einer Gruppe entscheidet die ID.
+func startNrLess(a, b model.Participant) bool {
+	ga, na := startNrClass(a.StartNr)
+	gb, nb := startNrClass(b.StartNr)
+	switch {
+	case ga != gb:
+		return ga < gb
+	case ga < 2 && na != nb:
+		return na < nb
+	case strings.TrimSpace(a.StartNr) != strings.TrimSpace(b.StartNr):
+		return strings.TrimSpace(a.StartNr) < strings.TrimSpace(b.StartNr)
+	}
+	return a.ID < b.ID
 }
 
 // finalizePanel füllt die Panel-Daten für den ausgewählten Teilnehmer.
@@ -301,6 +353,16 @@ func (a *App) finalizePanel(ld *LiveData, pid int64) {
 				ld.PanelValues[s.Judge-1] = s.Value
 			}
 		}
+		ld.PanelOverride = p.TotalOverride
+		if len(p.Scores) == ld.NumJ {
+			vals := make([]int, 0, ld.NumJ)
+			for _, v := range ld.PanelValues {
+				if v >= 0 {
+					vals = append(vals, v)
+				}
+			}
+			ld.PanelComputed, _ = model.TotalOf(vals, ld.NumJ)
+		}
 		break
 	}
 }
@@ -314,7 +376,10 @@ func (a *App) rankFulls(fs []fullRank, numJ int) []RankRow {
 				scores = append(scores, v)
 			}
 		}
-		entries = append(entries, model.RankEntry{ID: f.row.P.ID, Scores: scores, Starred: f.row.P.Starred})
+		entries = append(entries, model.RankEntry{
+			ID: f.row.P.ID, Scores: scores, Starred: f.row.P.Starred,
+			Override: f.override,
+		})
 	}
 	ranked := model.Rank(entries)
 	out := make([]RankRow, 0, len(ranked))

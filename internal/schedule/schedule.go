@@ -1,14 +1,17 @@
 // Package schedule rechnet die Live-Zeitprognose:
 // wann jeder Tanz an der Reihe ist und wann der Block endet.
 //
-// Grundlage:
-//   - Default-Slot = Aufritt + max. Tanzlänge (BDK) + Punktezeit (Default)
-//   - Beobachteter Slot = Abstand der letzten (7.) Note zwischen zwei
-//     aufeinanderfolgenden, fertig bewerteten Tänzen (ein voller Zyklus)
-//   - Beobachtete Punktezeit = letzte minus erste Note pro Tanz
+// Grundlage (gemessen "von Bewertung zur nächsten Bewertung"):
+//   - Gap = Ende einer Bewertung (letzte Note) bis Beginn der nächsten
+//     Bewertung (erste Note) – schon mit der ersten Note des Nächsten
+//     messbar, nicht erst nach dessen 7. Note
+//   - Punktezeit = letzte minus erste Note pro fertigem Tanz
+//   - Slot-Zyklus = Gap + Punktezeit
 //
-// Sobald Beobachtungen vorliegen, gewinnt der gemessene Takt des Tages;
-// andernfalls wird mit den Defaultwerten gerechnet.
+// Für die Prognose wird die aktuelle Durchschnittszeit der gesammelten
+// Beobachtungen genutzt; solange noch nicht genug Daten vorliegen,
+// greifen die Defaultwerte (Gap = Aufritt + max. Tanzlänge,
+// Punktezeit = Default).
 package schedule
 
 import (
@@ -16,6 +19,11 @@ import (
 
 	"tuniert/internal/model"
 )
+
+// gapCapSec: größter plausibler Abstand "von Bewertung zur nächsten
+// Bewertung" (40 min). Größere Abstände gelten als Pause und fließen
+// nicht in die Durchschnittszeit ein.
+const gapCapSec = 40 * 60
 
 // Settings sind die pro Disziplin konfigurierbaren Zeiten.
 type Settings struct {
@@ -46,7 +54,8 @@ type ResultEntry struct {
 type Result struct {
 	Now     time.Time
 	Entries []ResultEntry
-	// SlotSec ist der aktuelle Slot-Schätzwert (Sekunden pro Tanz).
+	// SlotSec ist der aktuelle Slot-Schätzwert (Sekunden pro Tanzzyklus,
+	// = Gap "von Bewertung zur nächsten" + Punktezeit).
 	SlotSec int
 	// ScoringSec ist der aktuelle Schätzwert für die reine Punktezeit.
 	ScoringSec int
@@ -60,8 +69,8 @@ type Result struct {
 	Next *ResultEntry
 }
 
-// Compute rechnet die Prognose aus den gegebenen (sortierten, nicht
-// zurückgezogenen) Teilnehmern.
+// Compute rechnet die Prognose aus den gegebenen Teilnehmern, sortiert
+// nach Startnummer (aufsteigend), ohne zurückgezogene.
 func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) Result {
 	entries := make([]ResultEntry, 0, len(participants))
 	for _, p := range participants {
@@ -79,9 +88,8 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 	}
 
 	n := set.NumJudges
-	scoringObs, slotObs := 0.0, 0.0
-	ns, nslot := 0, 0
-	var prevLast *time.Time
+	scoringObs, gapObs := 0.0, 0.0
+	ns, ngap := 0, 0
 
 	for i, p := range participants {
 		first, last, has := firstLast(p.Scores)
@@ -91,17 +99,23 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 			scoringObs += last.Sub(first).Seconds()
 			ns++
 		}
-		// Slot-Zyklus zwischen zwei aufeinanderfolgenden Fertigen
-		if has && len(p.Scores) == n {
-			if prevLast != nil {
-				slotObs += last.Sub(*prevLast).Seconds()
-				nslot++
+		// Gap "von Bewertung zur nächsten Bewertung": Ende der Bewertung
+		// des Vorturners (letzte Note) bis Beginn dieser (erste Note).
+		// Schon mit der ersten Note messbar – nicht erst nach der 7.
+		// Abnormal lange Abstände (Pause) fließen nicht in den Schnitt.
+		if has && i > 0 {
+			prev := participants[i-1]
+			if len(prev.Scores) == n {
+				if _, prevLast, _ := firstLast(prev.Scores); first.After(prevLast) && first.Sub(prevLast).Seconds() <= gapCapSec {
+					gapObs += first.Sub(prevLast).Seconds()
+					ngap++
+				}
 			}
-			prevLast = &last
 		}
-		_ = i
 	}
 
+	// Punktezeit: aktuelle Durchschnittszeit aller fertig bewerteten
+	// Tänze; ohne Beobachtungen der Defaultwert.
 	scoringSec := set.ScoringDefSec
 	if ns > 0 {
 		if v := int(scoringObs / float64(ns)); v > 0 {
@@ -113,12 +127,18 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 		scoringSec = 30
 	}
 
-	slotSec := set.WalkOnSec + set.MaxDanceSec + scoringSec
-	if nslot > 0 {
-		if v := int(slotObs / float64(nslot)); v > 0 {
-			slotSec = v
+	// Gap "von Bewertung zur nächsten Bewertung": aktuelle
+	// Durchschnittszeit; ohne Beobachtungen der Defaultwert
+	// (Aufritt + max. Tanzlänge).
+	gapSec := set.WalkOnSec + set.MaxDanceSec
+	if ngap > 0 {
+		if v := int(gapObs / float64(ngap)); v > 0 {
+			gapSec = v
 		}
 	}
+
+	// Slot-Zyklus = Gap + Punktezeit (ein voller Tanzzyklus).
+	slotSec := gapSec + scoringSec
 	if slotSec < 60 {
 		slotSec = 60
 	}

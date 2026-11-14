@@ -5,7 +5,8 @@
     <span class="count">{{len .Plain}} von {{.ActivePlain}} fertig bewertet</span>
   </div>
   {{if .Plain}}
-  <table>
+  <div class="table-wrap">
+  <table class="rank-table">
     <thead>
       <tr>
         <th class="num">Platz</th><th>Name</th><th>Verein</th>
@@ -16,7 +17,7 @@
     <tbody>
     {{range $row := .Plain}}
       <tr>
-        <td class="num rank-cell">{{$row.Rank}}</td>
+        <td class="num rank-cell"><span class="rank-medal{{if eq $row.Rank 1}} m1{{else if eq $row.Rank 2}} m2{{else if eq $row.Rank 3}} m3{{end}}">{{$row.Rank}}</span></td>
         <td class="name-cell"><span class="startnr">{{$row.P.StartNr}}</span>{{$row.P.Name}}</td>
         <td class="verein-cell">{{$row.P.Verein}}</td>
         {{range $i, $v := $row.Values}}
@@ -27,11 +28,13 @@
             {{end}}
           </td>
         {{end}}
-        <td class="num"><span class="total-val">{{$row.Total}}</span></td>
+        <td class="num"><span class="total-val">{{$row.Total}}</span>
+          {{if $row.Official}}<span class="official-mark" title="Offiziell genannte Summe – überschreibt die berechnete">off</span>{{end}}</td>
       </tr>
     {{end}}
     </tbody>
   </table>
+  </div>
   {{else}}
   <p class="panel-hint">Noch keine komplette Wertung – die Rangliste füllt sich, sobald 7/7 Noten vorliegen.</p>
   {{end}}
@@ -42,7 +45,8 @@
     <span class="count">{{len .Star}} von {{.ActiveStar}} fertig bewertet</span>
   </div>
   {{if .Star}}
-  <table>
+  <div class="table-wrap">
+  <table class="rank-table">
     <thead>
       <tr>
         <th class="num">Platz</th><th>Name</th><th>Verein</th>
@@ -53,7 +57,7 @@
     <tbody>
     {{range $row := .Star}}
       <tr>
-        <td class="num rank-cell">{{$row.Rank}}</td>
+        <td class="num rank-cell"><span class="rank-medal{{if eq $row.Rank 1}} m1{{else if eq $row.Rank 2}} m2{{else if eq $row.Rank 3}} m3{{end}}">{{$row.Rank}}</span></td>
         <td class="name-cell"><span class="startnr">{{$row.P.StartNr}}</span><span class="star">★</span> {{$row.P.Name}}</td>
         <td class="verein-cell">{{$row.P.Verein}}</td>
         {{range $i, $v := $row.Values}}
@@ -64,43 +68,15 @@
             {{end}}
           </td>
         {{end}}
-        <td class="num"><span class="total-val">{{$row.Total}}</span></td>
+        <td class="num"><span class="total-val">{{$row.Total}}</span>
+          {{if $row.Official}}<span class="official-mark" title="Offiziell genannte Summe – überschreibt die berechnete">off</span>{{end}}</td>
       </tr>
     {{end}}
     </tbody>
   </table>
+  </div>
   {{else}}
   <p class="panel-hint">Noch keine komplette Wertung.</p>
   {{end}}
 </div>
-{{if .Pending}}
-<div class="card">
-  <div class="rank-head">
-    <h3>In Bewertung</h3>
-    <span class="count">noten unvollständig – außerhalb der Platzierung</span>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th class="num">Noten</th><th>Name</th><th>Verein</th>
-        {{range seq .NumJ}}<th class="num">R{{.}}</th>{{end}}
-        <th class="num">&nbsp;</th>
-      </tr>
-    </thead>
-    <tbody>
-    {{range $row := .Pending}}
-      <tr class="pending">
-        <td class="num"><span class="badge progress">{{$row.N}}/{{$.NumJ}}</span></td>
-        <td class="name-cell"><span class="startnr">{{$row.P.StartNr}}</span>{{star $row.P.Starred}} {{$row.P.Name}}</td>
-        <td class="verein-cell">{{$row.P.Verein}}</td>
-        {{range $i, $v := $row.Values}}
-          <td class="num">{{if eq $v -1}}·{{else}}{{$v}}{{end}}</td>
-        {{end}}
-        <td class="num">–</td>
-      </tr>
-    {{end}}
-    </tbody>
-  </table>
-</div>
-{{end}}
 {{end}}

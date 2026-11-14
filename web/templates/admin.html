@@ -12,7 +12,7 @@
       <div class="card">
         <h2>Sessions</h2>
         <form class="row-form" hx-post="/admin/session/create" hx-target="body" hx-swap="outerHTML">
-          <input type="text" name="name" placeholder="Neue Session (z. B. Stadt 01.02.2027) …" required style="flex:1">
+          <input type="text" name="name" placeholder="Neue Session (z. B. 2026/27) …" required style="flex:1">
           <button class="btn primary" type="submit">Anlegen</button>
         </form>
         {{range .Sessions}}
@@ -82,13 +82,13 @@
             <div class="row-form">
               <input type="text" name="name" value="{{.Name}}" style="flex:1;min-width:160px" required>
               <label style="font-size:12px;color:var(--muted)">Max. Tanz (s)
-                <input type="number" name="max_dance_sec" value="{{.MaxDanceSec}}" min="0" title="z. B. 180 = 3:00 (BDK)">
+                <input type="number" name="max_dance_sec" value="{{.MaxDanceSec}}" min="0" title="z. B. 120 = 2:00">
               </label>
               <label style="font-size:12px;color:var(--muted)">Punktezeit (s)
-                <input type="number" name="scoring_def_sec" value="{{.ScoringDefSec}}" min="0" title="z. B. 720 = 12:00">
+                <input type="number" name="scoring_def_sec" value="{{.ScoringDefSec}}" min="0" title="z. B. 120 = 2:00">
               </label>
               <label style="font-size:12px;color:var(--muted)">Auftritt (s)
-                <input type="number" name="walk_on_sec" value="{{.WalkOnSec}}" min="0" title="z. B. 120 = 2:00">
+                <input type="number" name="walk_on_sec" value="{{.WalkOnSec}}" min="0" title="z. B. 60 = 1:00">
               </label>
               <label style="font-size:12px;color:var(--muted)">Richter
                 <input type="number" name="num_judges" value="{{.NumJudges}}" min="1" max="13">
@@ -126,6 +126,7 @@
           <label style="font-size:13px"><input type="checkbox" name="starred"> Stern</label>
           <button class="btn primary" type="submit">Hinzufügen</button>
         </form>
+        <div class="table-wrap">
         <table class="admin-table">
           <thead>
             <tr>
@@ -140,8 +141,8 @@
             <form style="display:contents" hx-post="/admin/part/update" hx-target="body" hx-swap="outerHTML">
               <input type="hidden" name="id" value="{{.ID}}">
               <td><input type="text" name="start_nr" value="{{.StartNr}}" size="4"></td>
-              <td><input type="text" name="name" value="{{.Name}}" {{if .Withdrawn}}class="withdrawn-name"{{end}} style="min-width:170px"></td>
-              <td><input type="text" name="verein" value="{{.Verein}}" style="min-width:190px"></td>
+              <td><input type="text" name="name" value="{{.Name}}" {{if .Withdrawn}}class="withdrawn-name"{{end}}></td>
+              <td><input type="text" name="verein" value="{{.Verein}}"></td>
               <td class="num"><input type="checkbox" name="starred" {{if .Starred}}checked{{end}}></td>
               <td class="num"><input type="checkbox" name="withdrawn" {{if .Withdrawn}}checked{{end}}></td>
               <td><button class="btn small" type="submit">✓</button></td>
@@ -169,6 +170,7 @@
           {{end}}
           </tbody>
         </table>
+        </div>
         <div style="margin-top:14px" class="danger-zone">
           <span class="inline-form">
             <form hx-post="/admin/scores/reset" hx-target="body" hx-swap="outerHTML"
@@ -197,18 +199,6 @@
             <button class="btn primary" type="submit">Importieren</button>
           </div>
         </form>
-        <h2 style="margin-top:18px">Eingebettete Seed-Dateien</h2>
-        {{range .SeedFiles}}
-        <div class="row-form">
-          <code style="font-size:13px;flex:1">{{.}}</code>
-          <span class="inline-form">
-            <form hx-post="/admin/csv/import" hx-target="body" hx-swap="outerHTML">
-              <input type="hidden" name="source" value="seed:{{.}}">
-              <button class="btn small" type="submit">Importieren</button>
-            </form>
-          </span>
-        </div>
-        {{end}}
         {{if .SessionID}}
         <div class="row-form" style="margin-top:14px">
           <a class="btn" href="/admin/csv/export?s={{.SessionID}}">CSV der Session exportieren</a>

@@ -13,8 +13,7 @@ tuniert
 ├── internal/
 │   ├── model/                  # Datenmodell + Wertungslogik (Drop-High/Low, Tiebreak, Ränge)
 │   ├── schedule/               # ETA-Berechnung aus den Noten-Zeitstempeln
-│   ├── store/                  # SQLite-Zugriff, CSV-Import/-Export, eingebettete Seed-Daten
-│   │   └── seed/               #   Auslosungslisten als CSV (auto-Import bei leerer DB)
+│   └── store/                  # SQLite-Zugriff, CSV-Import/-Export
 │   └── web/                    # HTTP-Router, Go-Template-Rendering (Live + Admin)
 └── web/
     ├── templates/              #   base.html, live.html, admin.html, parts/*
@@ -32,9 +31,9 @@ go build -o tuniert .
 - `-addr` (Default `:8080`): HTTP-Adresse
 - `-db` (Default `tuniert.db`): Pfad zur SQLite-Datei
 
-**Seed-Verhalten:** Ist die Datenbank leer (keine Sessions), werden alle eingebetteten
-CSVs aus `internal/store/seed/` automatisch importiert – aktuell die
-Auslosungsliste *Stadtmeisterschaft 15.03.2026* (97 Einträge, 10 Disziplinen).
+**Daten laden:** Die App startet mit leerer Datenbank – es gibt **keinen
+automatischen Seed**. Auslosungslisten werden manuell per CSV-Import geladen
+(Admin → CSV Import, Format siehe unten).
 Durchgestrichene PDF-Einträge (Zugänge) werden als `withdrawn` importiert und
 im Admin-Bereich per Checkbox umschaltbar.
 
@@ -60,8 +59,8 @@ aus den Zeitstempeln der eingegebenen Noten abgeleitet:
   aufeinander folgender (komplett bewerteter) Tänzer.
 - **Punktezeit-Beobachtung:** letztes minus erstes Noten-Zeitstempel eines
   komplett bewerteten Tänzers (Teilnoten fließen nicht ein, da unvollständig).
-- **Falls keine Beobachtungen:** `Slot = Auftreten (120 s) + max. Tanz
-  (180 s) + Punktezeit (720 s)`, d. h. Default 17:00.
+- **Falls keine Beobachtungen:** `Slot = Aufritt (60 s) + max. Tanz
+  (120 s) + Punktezeit (120 s)`, d. h. Default 5:00.
 - **Aktueller Tänzer:** Restzeit = `Punktezeit · (7 − n) / 7` (bei n Noten);
   bei 0 Noten: Ende ≈ jetzt + Slot.
 - **Folgende Tänzer k:** `Start_k = Ende_{k−1}`, `Ende_k = Start_k + Slot`
@@ -69,14 +68,14 @@ aus den Zeitstempeln der eingegebenen Noten abgeleitet:
 - **Block-Ende:** Ende des letzten Tänzers.
 
 Alle Werte aktualisieren sich live mit jedem Poll (5 s) und nach jeder
-Score-Eingabe (HTMX OOB-Swap). In der Kopfzeile sind `Ø Slot` und
-`Ø Punktezeit` (die jeweils verwendeten Schätzwerte) eingeblendet.
+Score-Eingabe (HTMX OOB-Swap). In der Kopfzeile ist der verwendete
+`Ø Slot`-Schätzwert eingeblendet.
 
 ## CSV-Import / Export (Admin-Bereich)
 
 ```
 session;turnier;disziplin;startnr;name;verein;star;withdrawn
-Stadtmeisterschaft 15.03.2026;Jugend;Jugend Garde;3;Beispielgruppe;Tanzverein Beispiel e.V.;0;0
+2026/27;Stadtmeisterschaft 15.03.2026;Jugend Garde;3;Beispielgruppe;Tanzverein Beispiel e.V.;0;0
 ```
 
 - Trenner `;` oder `,`; Kopfzeile optional; Flags `1`/`x`/`*`/`ja` = wahr.
@@ -91,13 +90,15 @@ Stadtmeisterschaft 15.03.2026;Jugend;Jugend Garde;3;Beispielgruppe;Tanzverein Be
 
 ```
 Session ──> Competition („Turnier") ──> Discipline (Disziplin)
-                                        ├── max_dance_sec  = 180  (BDK max. Tanzlänge)
-                                        ├── scoring_def_sec= 720  (Default Punktezeit)
-                                        ├── walk_on_sec    = 120  (Auftritt/Wechsel)
+                                        ├── max_dance_sec  = 120  (max. Tanzlänge)
+                                        ├── scoring_def_sec= 120  (Default Punktezeit)
+                                        ├── walk_on_sec    = 60   (Aufritt/Wechsel)
                                         └── num_judges     = 7
 Participant (start_nr TEXT, name, verein, starred, withdrawn, sort_order)
   └── Score (judge 1..n, value 0..100, updated_at; UNIQUE(participant, judge), Upsert)
 ```
+
+`Session` bezeichnet ein Jahr (eine Saison), z. B. `2026/27`.
 
 Zugelassene Disziplinen werden einheitlich mit 7 Richtern bewertet – auch
 Schautanz. `withdrawn`-Teilnehmer werden aus Live-Scoring, ETAs und
@@ -108,7 +109,7 @@ Platzierungen ausgeschlossen (im Admin-Bereich mit Badge sichtbar).
 | Route | Zweck |
 |---|---|
 | `GET /` | Live-Ansicht (Session/Turnier/Disziplin via Query `s/t/d` + Cookie) |
-| `GET /partials/refresh` | OOB-Partial-Updates (Status, beide Platzierungen, Zeitplan, Score-Panel) – Polling alle 5 s |
+| `GET /partials/refresh` | OOB-Partial-Updates (Status, beide Platzierungen, Zeitplan) – Polling alle 5 s; Score-Panel nur mit explizitem `sel` (wird beim Polling nicht neu gerendert, damit Fokus/Eingabe erhalten bleiben) |
 | `POST /score` | `participant_id`, `judge`, `value` (leer = Note löschen); antwortet mit OOB-Updates |
 | `GET /admin` | Verwaltung: Session/Turnier/Disziplin anlegen · umbenennen · löschen, Disziplin-Zeiten, Teilnehmer (inline bearbeiten, ↑↓ verschieben, löschen), Stern/Zurückgezogen, Noten-Reset, CSV-Import/-Export |
 | `GET /healthz` | Health-Check |
