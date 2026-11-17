@@ -30,6 +30,16 @@ var funcs = template.FuncMap{
 		return out
 	},
 	"join": strings.Join,
+	// coalesce liefert den ersten nicht-leeren String (z. B. Name, sonst
+	// E-Mail). Der Name darf NICHT "or" sein: Das würde das eingebaute
+	// Template-Funktions-or (Boolean OR) überschreiben und z. B.
+	// "or (eq 1 1) (eq 2 2)" in der Rangliste zum Absturz bringen.
+	"coalesce": func(a, b string) string {
+		if strings.TrimSpace(a) == "" {
+			return b
+		}
+		return a
+	},
 	"dict": func(kv ...any) map[string]any {
 		m := map[string]any{}
 		for i := 0; i+1 < len(kv); i += 2 {
@@ -94,8 +104,20 @@ type RankRow struct {
 	Official bool
 }
 
+// SchedRow ist eine Zeile der Zeitplan-Tabelle: ein Teilnehmer mit seiner
+// Zeitprognose. Zurückgezogene Teilnehmer sind dabei (als gestrichen
+// angezeigt), haben aber keine Zeitangaben – die Zeitprognose springt sie
+// über.
+type SchedRow struct {
+	schedule.ResultEntry
+	Withdrawn bool
+}
+
 // LiveData ist das Gesamtdatensatz für die Live-Ansicht.
 type LiveData struct {
+	// Auth ist der Anmeldezustand (Login-Button, Score-Panel-Guard).
+	Auth AuthState
+
 	Sessions []model.Session
 	Comps    []model.Competition
 	Discs    []model.Discipline
@@ -105,18 +127,19 @@ type LiveData struct {
 	DiscID    int64
 	Disc      *model.Discipline
 
-	Parts   []model.Participant // alle, inkl. zurückgezogenen (für Ausblendung)
-	Active  []model.Participant // ohne zurückgezogene, in Startreihenfolge
-	Sched   *schedule.Result
-	Plain   []RankRow // Rangliste ohne Stern
-	Star    []RankRow // Rangliste mit Stern
-	Pending []RankRow // in Bewertung (grau, n/7)
-	NumJ    int
+	Parts     []model.Participant // alle, inkl. zurückgezogenen
+	Active    []model.Participant // ohne zurückgezogene, in Startreihenfolge
+	Sched     *schedule.Result    // Prognose (nur aktive) für Status/Block-Ende
+	SchedRows []SchedRow          // Zeitplan: alle in Startreihenfolge, gestrichene ohne Zeit
+	Plain     []RankRow           // Rangliste ohne Stern
+	Star      []RankRow           // Rangliste mit Stern
+	Pending   []RankRow           // in Bewertung (grau, n/7)
+	NumJ      int
 
-	LastScoreAt  *time.Time
-	Finished     bool
-	NowUnix      int64 // für die Uhr
-	SlotLabel string
+	LastScoreAt *time.Time
+	Finished    bool
+	NowUnix     int64 // für die Uhr
+	SlotLabel   string
 
 	// PanelPID ist der im Punkteeingabe-Panel ausgewählte Teilnehmer
 	// (Default: gerade an der Reihe; für Korrekturen wählbar).
@@ -233,6 +256,35 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	ld.Sched = &schedResult
 	ld.Finished = ld.Sched.Finished
 	ld.SlotLabel = fmtDur(ld.Sched.SlotSec)
+
+	// Zeitplan-Tabelle: ALLE Teilnehmer (auch zurückgezogene) in
+	// Startreihenfolge. Zurückgezogene erscheinen gestrichen, werden aber
+	// von der Zeitprognose übersprungen (kein Slot, keine Zeit) – daher
+	// per ID mit den Prognose-Einträgen (nur aktive) matchen.
+	allSorted := append([]model.Participant(nil), parts...)
+	sort.SliceStable(allSorted, func(i, j int) bool {
+		return startNrLess(allSorted[i], allSorted[j])
+	})
+	prognose := make(map[int64]schedule.ResultEntry, len(schedResult.Entries))
+	for _, e := range schedResult.Entries {
+		prognose[e.ID] = e
+	}
+	rows := make([]SchedRow, 0, len(allSorted))
+	for _, p := range allSorted {
+		if e, ok := prognose[p.ID]; ok {
+			rows = append(rows, SchedRow{ResultEntry: e})
+		} else {
+			rows = append(rows, SchedRow{
+				ResultEntry: schedule.ResultEntry{
+					ID: p.ID, StartNr: p.StartNr, Name: p.Name,
+					Verein: p.Verein, Starred: p.Starred,
+					State: model.StateWaiting,
+				},
+				Withdrawn: true,
+			})
+		}
+	}
+	ld.SchedRows = rows
 
 	if t, ok, _ := a.store.LastScoreTime(d.ID); ok {
 		ld.LastScoreAt = &t

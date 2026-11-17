@@ -2,29 +2,33 @@
 <div class="card">
   <div class="rank-head">
     <h3>Zeitplan &amp; Reihenfolge</h3>
-    <span class="count">Start-Zeiten aus der live gemessenen Taktung</span>
+    <span class="count">Start-Zeiten aus der live gemessenen Taktung · gestrichene Tänze werden übersprungen</span>
   </div>
-  {{if .Sched.Entries}}
+  {{if .SchedRows}}
   <div class="table-wrap">
   <table class="schedule">
     <thead>
       <tr><th class="num">Start</th><th>Name</th><th>Verein</th><th>Status</th><th>Zeit</th></tr>
     </thead>
     <tbody>
-    {{range .Sched.Entries}}
-      <tr {{if .IsCurrent}}class="current-row"{{end}}>
+    {{range .SchedRows}}
+      <tr {{if .IsCurrent}}class="current-row"{{else if .Withdrawn}}class="withdrawn-row"{{end}}>
         <td class="num">{{star .Starred}} {{.StartNr}}</td>
-        <td>{{.Name}}</td>
+        <td>{{if .Withdrawn}}<span class="withdrawn-name">{{.Name}}</span>{{else}}{{.Name}}{{end}}</td>
         <td class="verein-cell">{{.Verein}}</td>
         <td>
-          {{if .IsCurrent}}
-            {{if gt .NumScores 0}}<span class="badge progress">wird bewertet · {{.NumScores}}/{{$.NumJ}}</span>
-            {{else}}<span class="badge progress">an der Reihe</span>{{end}}
+          {{if .Withdrawn}}
+            <span class="badge withdrawn">gestrichen</span>
+          {{else if .IsCurrent}}
+            {{if gt .NumScores 0}}<span class="badge active">wird bewertet · {{.NumScores}}/{{$.NumJ}}</span>
+            {{else}}<span class="badge active">an der Reihe</span>{{end}}
           {{else if eq .State "complete"}}<span class="badge done">fertig</span>
           {{else}}<span class="badge">wartet</span>{{end}}
         </td>
         <td class="eta">
-          {{if eq .State "complete"}}
+          {{if .Withdrawn}}
+            –
+          {{else if eq .State "complete"}}
             {{if .EndEst}}✓ {{fmtHMS .EndEst}}{{end}}
           {{else if .IsCurrent}}
             {{if gt .NumScores 0}}{{if .EndEst}}fertig ca. {{fmtHMS .EndEst}}{{end}}
@@ -41,7 +45,7 @@
     · Ø Slot <b>{{.SlotLabel}}</b>
   </div>
   {{else}}
-  <p class="panel-hint">Keine (aktiven) Teilnehmer in dieser Disziplin.</p>
+  <p class="panel-hint">Keine Teilnehmer in dieser Disziplin.</p>
   {{end}}
 </div>
 {{if .Pending}}
@@ -62,7 +66,7 @@
     <tbody>
     {{range $row := .Pending}}
       <tr class="pending">
-        <td class="num"><span class="badge progress">{{$row.N}}/{{$.NumJ}}</span></td>
+        <td class="num"><span class="badge active">{{$row.N}}/{{$.NumJ}}</span></td>
         <td class="name-cell"><span class="startnr">{{$row.P.StartNr}}</span>{{star $row.P.Starred}} {{$row.P.Name}}</td>
         <td class="verein-cell">{{$row.P.Verein}}</td>
         {{range $i, $v := $row.Values}}

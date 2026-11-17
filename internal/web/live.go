@@ -163,6 +163,7 @@ func (a *App) livePage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	ld.Auth = a.auth.authState(r)
 	a.finalizePanel(ld, a.panelSelection(r, ld, true))
 	a.render(w, r, http.StatusOK, "live", ld)
 }
@@ -185,6 +186,7 @@ func (a *App) refresh(w http.ResponseWriter, r *http.Request, withPanel, scorePo
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	ld.Auth = a.auth.authState(r)
 	a.finalizePanel(ld, a.panelSelection(r, ld, !scorePost))
 	a.renderOOB(w, ld, withPanel)
 }

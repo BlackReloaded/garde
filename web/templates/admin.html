@@ -2,6 +2,10 @@
 <div class="topbar">
   <span class="brand">tuniert · Admin</span>
   <span class="spacer"></span>
+  <span class="authchip" title="{{.Auth.Email}}">✓ {{coalesce .Auth.Name .Auth.Email}}</span>
+  <form method="post" action="/auth/logout" class="logout-form">
+    <button type="submit" class="linkbtn">Abmelden</button>
+  </form>
   <span class="navlinks"><a href="/">← Live-Ansicht</a></span>
 </div>
 <div class="wrap">
@@ -108,6 +112,56 @@
         {{end}}
         {{else}}
         <p class="panel-hint">Zuerst ein Turnier öffnen oder anlegen.</p>
+        {{end}}
+      </div>
+
+      <div class="card">
+        <h2>Berechtigungen</h2>
+        <p class="panel-hint">
+          Wer sich anmelden darf und was er tun kann. Die Listen liegen in
+          der Datenbank und wirken sofort (ohne Neustart). Beim Start
+          übernimmt <code>-admins</code> genannte Adressen optional als
+          admin in die DB (idempotent) – danach ist nur diese Liste hier
+          maßgeblich.
+        </p>
+        <form class="row-form" hx-post="/admin/role/add" hx-target="body" hx-swap="outerHTML">
+          <input type="text" name="email" placeholder="adresse@verein.de" required style="flex:1"
+            pattern="[^@\s]+@[^@\s]+\.[^@\s]+">
+          <select name="role" style="flex:0">
+            <option value="bewerten">bewerten (Noten)</option>
+            <option value="admin">admin (alles)</option>
+          </select>
+          <button class="btn primary" type="submit">Hinzufügen</button>
+        </form>
+
+        <h3 class="role-list">admin (Admin-Bereich + Noten)</h3>
+        {{range .RolesAdm}}
+        <div class="role-row">
+          <span class="role-email">{{.Email}}</span>
+          <span class="spacer"></span>
+          <form hx-post="/admin/role/remove" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="email" value="{{.Email}}">
+            <input type="hidden" name="role" value="{{.Role}}">
+            <button class="btn small danger" type="submit" title="Entfernen">✕</button>
+          </form>
+        </div>
+        {{else}}
+        <p class="panel-hint">Keine Einträge.</p>
+        {{end}}
+
+        <h3 class="role-list">bewerten (nur Noten eintragen)</h3>
+        {{range .RolesScr}}
+        <div class="role-row">
+          <span class="role-email">{{.Email}}</span>
+          <span class="spacer"></span>
+          <form hx-post="/admin/role/remove" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="email" value="{{.Email}}">
+            <input type="hidden" name="role" value="{{.Role}}">
+            <button class="btn small danger" type="submit" title="Entfernen">✕</button>
+          </form>
+        </div>
+        {{else}}
+        <p class="panel-hint">Keine Einträge.</p>
         {{end}}
       </div>
 

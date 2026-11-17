@@ -11,9 +11,12 @@ import (
 
 // AdminData ist der Datensatz für die Admin-Ansicht.
 type AdminData struct {
+	Auth      AuthState
 	Sessions  []model.Session
 	Comps     []model.Competition
 	Discs     []model.Discipline
+	RolesAdm  []model.RoleEntry // effektive Admin-Liste (Flags ∪ UI)
+	RolesScr  []model.RoleEntry // effektive Bewertende-Liste (Flags ∪ UI)
 	SessionID int64
 	CompID    int64
 	DiscID    int64
@@ -25,8 +28,15 @@ type AdminData struct {
 
 func (a *App) adminData(r *http.Request) *AdminData {
 	s, t, d := a.resolveView(r)
-	ad := &AdminData{SessionID: s, CompID: t, DiscID: d}
+	ad := &AdminData{SessionID: s, CompID: t, DiscID: d, Auth: a.auth.authState(r)}
 	ad.Sessions, _ = a.store.ListSessions()
+	for _, e := range a.auth.ListRoles() {
+		if e.Role == model.RoleAdmin {
+			ad.RolesAdm = append(ad.RolesAdm, e)
+		} else {
+			ad.RolesScr = append(ad.RolesScr, e)
+		}
+	}
 	if s != 0 {
 		ad.Comps, _ = a.store.ListCompetitions(s)
 	}
@@ -338,4 +348,33 @@ func (a *App) adminCSVExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="tuniert-export.csv"`)
 	w.Write([]byte(text))
+}
+
+// ---------- Berechtigungen (Rollen-Listen) ----------
+
+// adminRoleAdd ergänzt eine E-Mail-Adresse als admin bzw. bewerten.
+// Start-Flags bleiben unberührt; der Eintrag wirkt sofort (DB).
+func (a *App) adminRoleAdd(w http.ResponseWriter, r *http.Request) {
+	email := strings.TrimSpace(r.FormValue("email"))
+	role := r.FormValue("role")
+	if err := a.auth.AddRole(email, role); err != nil {
+		a.respondAdmin(w, r, err.Error(), false)
+		return
+	}
+	a.respondAdmin(w, r, fmt.Sprintf("%s als %s eingetragen – wirkt sofort",
+		email, RoleLabel(role)), true)
+}
+
+// adminRoleRemove entfernt einen UI-Eintrag (Start-Flags sind nicht
+// entfernbar). Wirkt sofort: die Rolle wird beim nächsten Request neu
+// geprüft.
+func (a *App) adminRoleRemove(w http.ResponseWriter, r *http.Request) {
+	email := strings.TrimSpace(r.FormValue("email"))
+	role := r.FormValue("role")
+	if err := a.auth.RemoveRole(email, role); err != nil {
+		a.respondAdmin(w, r, err.Error(), false)
+		return
+	}
+	a.respondAdmin(w, r, fmt.Sprintf("%s aus %s entfernt",
+		email, RoleLabel(role)), true)
 }

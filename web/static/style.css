@@ -92,6 +92,28 @@ button { cursor: pointer; }
   background: rgba(255, 255, 255, .1);
   text-decoration: none;
 }
+.topbar .authchip {
+  font-size: 14px;
+  color: #9fd4b4;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.logout-form { display: inline; margin: 0; }
+.topbar .linkbtn {
+  background: none;
+  border: none;
+  color: #cdd6e2;
+  font-size: 14.5px;
+  padding: 7px 11px;
+  border-radius: 9px;
+}
+.topbar .linkbtn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, .1);
+  text-decoration: none;
+}
 
 .live-dot {
   display: inline-flex;
@@ -137,6 +159,20 @@ button { cursor: pointer; }
   box-shadow: var(--shadow);
   padding: 16px 18px;
 }
+.auth-error {
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+}
+.auth-error .card {
+  max-width: 460px;
+  text-align: center;
+}
+.auth-error h1 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+.auth-error p { color: var(--muted); }
 .card h2 {
   margin: 0 0 12px;
   font-size: 14px;
@@ -324,6 +360,26 @@ button { cursor: pointer; }
 }
 .panel-hint { margin-top: 12px; font-size: 13px; color: var(--muted); }
 
+/* ---------- Berechtigungen (Rollen-Listen) ---------- */
+.role-list {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.role-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.role-email {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
 /* ---------- Tabellen ---------- */
 .table-wrap {
   overflow-x: auto;
@@ -360,6 +416,7 @@ tr.total td { font-weight: 800; }
 tr.current-row td { background: var(--accent-soft); }
 tr.current-row td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
 tr.pending td { color: var(--muted); }
+tr.withdrawn-row td { color: var(--muted); }
 td .score-dropped { text-decoration: line-through; color: var(--muted); }
 td .total-val { font-size: 18px; font-weight: 800; }
 .rank-cell { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -386,7 +443,11 @@ td .total-val { font-size: 18px; font-weight: 800; }
   white-space: nowrap;
 }
 .badge.done { background: var(--green-soft); color: var(--green); }
-.badge.progress { background: var(--accent-soft); color: var(--accent); }
+/* Solid (nicht accent-soft): auf der current-row (Hintergrund accent-soft)
+   wäre die weiche Variante unsichtbar. Klassenname bewusst NICHT "progress":
+   .progress (Fortschrittsbalken in der Statuskarte) hätte dem Badge
+   height:12px + overflow:hidden verpasst → halbierte Buchstaben. */
+.badge.active { background: var(--accent); color: #fff; }
 .badge.withdrawn { background: var(--red-soft); color: var(--red); }
 .name-cell .startnr {
   font-weight: 800;

@@ -5,7 +5,17 @@
   <span class="viewpath">{{.Disc.SessionName}} · <b>{{.Disc.CompetitionName}}</b> · <b>{{.Disc.Name}}</b></span>
   <span class="spacer"></span>
   <span class="clock" id="clock">--:--:--</span>
+  {{if .Auth.LoggedIn}}
+  <span class="authchip" title="{{.Auth.Email}}">✓ {{coalesce .Auth.Name .Auth.Email}}</span>
+  <form method="post" action="/auth/logout" class="logout-form">
+    <button type="submit" class="linkbtn">Abmelden</button>
+  </form>
+  {{else}}
+  <span class="navlinks"><a href="/auth/login">Anmelden</a></span>
+  {{end}}
+  {{if .Auth.CanAdmin}}
   <span class="navlinks"><a href="/admin">Admin</a></span>
+  {{end}}
 </div>
 <div class="wrap"
   hx-get="/partials/refresh?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}"

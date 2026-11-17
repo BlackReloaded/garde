@@ -89,6 +89,32 @@ func (s *Store) migrate() error {
 			updated_at TEXT NOT NULL,
 			UNIQUE(participant_id, judge)
 		)`,
+		`CREATE TABLE IF NOT EXISTS login_user(
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			provider TEXT NOT NULL,
+			provider_sub TEXT NOT NULL,
+			email TEXT NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			role TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			last_login_at TEXT NOT NULL,
+			UNIQUE(provider, provider_sub)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_luser_email ON login_user(email)`,
+		`CREATE TABLE IF NOT EXISTS login_session(
+			token TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES login_user(id) ON DELETE CASCADE,
+			created_at TEXT NOT NULL,
+			expires_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ls_user ON login_session(user_id)`,
+		// Rollen-Einträge aus der Admin-UI (Ergänzung zu den Start-Flags).
+		`CREATE TABLE IF NOT EXISTS login_role(
+			role TEXT NOT NULL,
+			email TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			PRIMARY KEY (role, email)
+		)`,
 	}
 	for _, st := range stmts {
 		if _, err := s.db.Exec(st); err != nil {
@@ -603,4 +629,139 @@ func parseTime(s string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+// ---------- Login (OIDC) ----------
+
+// UpsertLoginUser legt einen Login-Benutzer an oder aktualisiert Name/Rolle/
+// Last-Login (Schlüssel: provider + provider_sub).
+func (s *Store) UpsertLoginUser(u model.LoginUser) (int64, error) {
+	if u.CreatedAt.IsZero() {
+		u.CreatedAt = time.Now()
+	}
+	if u.LastLoginAt.IsZero() {
+		u.LastLoginAt = time.Now()
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO login_user(provider, provider_sub, email, name, role, created_at, last_login_at)
+		VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(provider, provider_sub)
+		DO UPDATE SET email = excluded.email, name = excluded.name,
+		              role = excluded.role, last_login_at = excluded.last_login_at`,
+		u.Provider, u.ProviderSub, u.Email, u.Name, u.Role,
+		u.CreatedAt.Format(time.RFC3339Nano), u.LastLoginAt.Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, err
+	}
+	var id int64
+	err = s.db.QueryRow(`SELECT id FROM login_user WHERE provider = ? AND provider_sub = ?`,
+		u.Provider, u.ProviderSub).Scan(&id)
+	return id, err
+}
+
+// GetLoginUserBySession liefert den Benutzer zu einer gültigen (nicht
+// abgelaufenen) Session; sonst sql.ErrNoRows.
+func (s *Store) GetLoginUserBySession(token string) (*model.LoginUser, error) {
+	var u model.LoginUser
+	var ca, la string
+	err := s.db.QueryRow(`
+		SELECT lu.id, lu.provider, lu.provider_sub, lu.email, lu.name, lu.role,
+		       lu.created_at, lu.last_login_at
+		FROM login_session ls
+		JOIN login_user lu ON lu.id = ls.user_id
+		WHERE ls.token = ? AND ls.expires_at > ?`,
+		token, time.Now().Format(time.RFC3339Nano)).
+		Scan(&u.ID, &u.Provider, &u.ProviderSub, &u.Email, &u.Name, &u.Role, &ca, &la)
+	if err != nil {
+		return nil, err
+	}
+	u.CreatedAt = parseTime(ca)
+	u.LastLoginAt = parseTime(la)
+	return &u, nil
+}
+
+// CreateLoginSession legt eine Session an und räumt abgelaufene auf.
+func (s *Store) CreateLoginSession(token string, userID int64, ttl time.Duration) error {
+	now := time.Now()
+	if _, err := s.db.Exec(`DELETE FROM login_session WHERE expires_at <= ?`,
+		now.Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO login_session(token, user_id, created_at, expires_at) VALUES(?,?,?,?)`,
+		token, userID, now.Format(time.RFC3339Nano),
+		now.Add(ttl).Format(time.RFC3339Nano))
+	return err
+}
+
+// DeleteLoginSession entfernt eine Session (Logout).
+func (s *Store) DeleteLoginSession(token string) error {
+	_, err := s.db.Exec(`DELETE FROM login_session WHERE token = ?`, token)
+	return err
+}
+
+// AddLoginRole legt einen Rollen-Eintrag an (idempotent, für Duplikate
+// still). Nur Einträge aus der Admin-UI; die Start-Flags liegen nicht
+// in der DB.
+func (s *Store) AddLoginRole(role, email string) error {
+	_, err := s.db.Exec(`
+		INSERT OR IGNORE INTO login_role(role, email, created_at) VALUES(?,?,?)`,
+		role, email, time.Now().Format(time.RFC3339Nano))
+	return err
+}
+
+// RemoveLoginRole entfernt einen Rollen-Eintrag. Fehlt der Eintrag,
+// liefert die Funktion einen Fehler.
+func (s *Store) RemoveLoginRole(role, email string) error {
+	res, err := s.db.Exec(`DELETE FROM login_role WHERE role = ? AND email = ?`, role, email)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("Rollen-Eintrag %s (%s) existiert nicht", email, role)
+	}
+	return nil
+}
+
+// ListLoginRoles liefert alle UI-verwalteten Rollen-Einträge.
+func (s *Store) ListLoginRoles() ([]model.RoleEntry, error) {
+	rows, err := s.db.Query(`SELECT role, email FROM login_role ORDER BY role, email`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.RoleEntry{}
+	for rows.Next() {
+		var e model.RoleEntry
+		if err := rows.Scan(&e.Role, &e.Email); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ListLoginUsers liefert alle Login-Benutzer (für Auditing/Debugging).
+func (s *Store) ListLoginUsers() ([]model.LoginUser, error) {
+	rows, err := s.db.Query(`
+		SELECT id, provider, provider_sub, email, name, role, created_at, last_login_at
+		FROM login_user ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.LoginUser{}
+	for rows.Next() {
+		var u model.LoginUser
+		var ca, la string
+		if err := rows.Scan(&u.ID, &u.Provider, &u.ProviderSub, &u.Email, &u.Name,
+			&u.Role, &ca, &la); err != nil {
+			return nil, err
+		}
+		u.CreatedAt = parseTime(ca)
+		u.LastLoginAt = parseTime(la)
+		out = append(out, u)
+	}
+	return out, rows.Err()
 }
