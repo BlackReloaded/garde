@@ -39,7 +39,7 @@
             {{if .EndEst}}✓ {{fmtHMS .EndEst}}{{end}}
           {{else if .IsCurrent}}
             {{if gt .NumScores 0}}{{if .EndEst}}fertig ca. {{fmtHMS .EndEst}}{{end}}
-            {{else}}start ≈ jetzt{{end}}
+            {{else}}{{startLabel .StartEst $.Sched.Now}}{{end}}
           {{else if .StartEst}}ca. {{fmtHM .StartEst}}{{end}}
         </td>
       </tr>

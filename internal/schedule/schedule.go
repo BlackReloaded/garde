@@ -25,6 +25,13 @@ import (
 // nicht in die Durchschnittszeit ein.
 const gapCapSec = 40 * 60
 
+// startRolloverWindow: Wie spät darf es noch sein, wenn die gesetzte
+// Uhrzeit (z. B. 00:30) heute schon vorbei ist und damit auf den
+// Folgetag gedeutet? Innerhalb des Fensters (nächste Ankunft der
+// Uhrzeit ≤ 6 h) ist ein Start über Mitternacht gemeint. Davor gilt:
+// der Start ist heute gelaufen, kein Rollover.
+const startRolloverWindow = 6 * time.Hour
+
 // Settings sind die pro Disziplin konfigurierbaren Zeiten.
 type Settings struct {
 	MaxDanceSec   int
@@ -242,6 +249,21 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 	return res
 }
 
+// PlanStartAt rechnet den konkreten Zeitpunkt der Turnier-Startzeit
+// (Sekunden seit Mitternacht) relativ zu now: normal die heutige
+// Ankunft der Uhrzeit. Ist die heutige Ankunft bereits vorbei, die
+// nächste (morgen) aber innerhalb von startRolloverWindow, ist ein
+// Start über Mitternacht gemeint (jetzt 23:00, Start 00:30 → morgen
+// 00:30) – dann wird der Folgetag genommen.
+func PlanStartAt(startAtSec int, now time.Time) time.Time {
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	t := midnight.Add(time.Duration(startAtSec) * time.Second)
+	if t.Before(now) && t.Add(24*time.Hour).Sub(now) <= startRolloverWindow {
+		t = t.Add(24 * time.Hour)
+	}
+	return t
+}
+
 // PlanDiscipline ist die geplante Start-/Endzeit einer Disziplin im
 // Turnier-Plan.
 type PlanDiscipline struct {
@@ -262,8 +284,7 @@ func PlanDisciplineStarts(startAtSec, breakSec int, now time.Time,
 	if startAtSec <= 0 || len(discs) == 0 {
 		return nil
 	}
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	t := midnight.Add(time.Duration(startAtSec) * time.Second)
+	t := PlanStartAt(startAtSec, now)
 	out := make([]PlanDiscipline, 0, len(discs))
 	first := true
 	for _, d := range discs {

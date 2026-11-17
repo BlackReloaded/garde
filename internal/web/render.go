@@ -47,6 +47,15 @@ var funcs = template.FuncMap{
 		}
 		return m
 	},
+	// startLabel rendert den Slot-Start der aktuellen Reihe: konkrete
+	// (geplante) Startzeit, wenn sie (mindestens 1 min) in der Zukunft
+	// liegt, sonst "start ≈ jetzt".
+	"startLabel": func(startEst *time.Time, now time.Time) string {
+		if startEst != nil && startEst.After(now.Add(time.Minute)) {
+			return "start ca. " + startEst.Format("15:04")
+		}
+		return "start ≈ jetzt"
+	},
 }
 
 func fmtHM(t *time.Time) string {
@@ -207,7 +216,12 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	if err != nil {
 		return nil, err
 	}
-	comps, err := a.store.ListCompetitions(d.CompetitionID)
+	// Das Turnier der Disziplin (Session-ID + Zeiten: Startzeit, Pause).
+	comp, err := a.store.GetCompetition(d.CompetitionID)
+	if err != nil {
+		return nil, err
+	}
+	comps, err := a.store.ListCompetitions(comp.SessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -217,21 +231,16 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	}
 
 	ld := &LiveData{
-		Sessions: sessions,
-		Comps:    comps,
-		Discs:    []model.Discipline{},
-		CompID:   d.CompetitionID,
-		DiscID:   d.ID,
-		Disc:     d,
-		Parts:    parts,
-		NumJ:     d.NumJudges,
-		NowUnix:  now.Unix(),
-	}
-	// Session-ID + Zeiten des Turniers (Startzeit, Pause zwischen Disziplinen).
-	var comp *model.Competition
-	if c, err := a.store.GetCompetition(d.CompetitionID); err == nil {
-		comp = c
-		ld.SessionID = c.SessionID
+		Sessions:  sessions,
+		Comps:     comps,
+		Discs:     []model.Discipline{},
+		CompID:    d.CompetitionID,
+		DiscID:    d.ID,
+		Disc:      d,
+		Parts:     parts,
+		NumJ:      d.NumJudges,
+		NowUnix:   now.Unix(),
+		SessionID: comp.SessionID,
 	}
 	// Alle Disziplinen des Turniers (für den Selektor).
 	allDiscs, err := a.store.ListDisciplines(d.CompetitionID)
@@ -254,8 +263,7 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 		if counts, err := a.store.CountActiveParticipants(ids); err == nil {
 			plan := schedule.PlanDisciplineStarts(comp.StartAtSec, comp.BreakSec, now, allDiscs, counts)
 			ld.PlanDiscs = plan
-			start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).
-				Add(time.Duration(comp.StartAtSec) * time.Second)
+			start := schedule.PlanStartAt(comp.StartAtSec, now)
 			ld.CompStart = &start
 			ld.CompBreakSec = comp.BreakSec
 			for i := range plan {
