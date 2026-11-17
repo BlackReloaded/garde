@@ -4,6 +4,13 @@
     <h3>Zeitplan &amp; Reihenfolge</h3>
     <span class="count">Start-Zeiten aus der live gemessenen Taktung · gestrichene Tänze werden übersprungen</span>
   </div>
+  {{if .PlanDiscs}}
+  <div class="plan-discs" title="Geplante Disziplin-Starts (Turnier-Start + Disziplin-Dauer + Pausen)">
+    {{range $i, $d := .PlanDiscs}}{{if $i}} · {{end}}
+      {{if eq $d.ID $.DiscID}}<b>{{.Name}} {{fmtHM .StartEst}}</b>{{else}}{{.Name}} {{fmtHM .StartEst}}{{end}}
+    {{end}}
+  </div>
+  {{end}}
   {{if .SchedRows}}
   <div class="table-wrap">
   <table class="schedule">

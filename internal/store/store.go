@@ -56,7 +56,9 @@ func (s *Store) migrate() error {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			session_id INTEGER NOT NULL REFERENCES session(id) ON DELETE CASCADE,
 			name TEXT NOT NULL,
-			sort_order INTEGER NOT NULL
+			sort_order INTEGER NOT NULL,
+			start_at_sec INTEGER NOT NULL DEFAULT 0,
+			break_sec INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_comp_session ON competition(session_id)`,
 		`CREATE TABLE IF NOT EXISTS discipline(
@@ -126,6 +128,16 @@ func (s *Store) migrate() error {
 	if _, err := s.db.Exec(`ALTER TABLE participant ADD COLUMN total_override INTEGER`); err != nil &&
 		!strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("migration: %w", err)
+	}
+	// Bestehende DBs: Turnier-Startzeit + Disziplinen-Pause nachrüsten.
+	for _, st := range []string{
+		`ALTER TABLE competition ADD COLUMN start_at_sec INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE competition ADD COLUMN break_sec INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := s.db.Exec(st); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column name") {
+			return fmt.Errorf("migration: %w", err)
+		}
 	}
 	// Bestehende DBs: alte BDK-Test-Defaults (3:00 Tanz / 12:00 Punktezeit /
 	// 2:00 Aufritt = 17-Minuten-Slot) durch den 5-Minuten-Takt ersetzen.
@@ -207,7 +219,8 @@ func (s *Store) DeleteSession(id int64) error {
 
 func (s *Store) ListCompetitions(sessionID int64) ([]model.Competition, error) {
 	rows, err := s.db.Query(
-		`SELECT id, session_id, name, sort_order FROM competition WHERE session_id = ? ORDER BY sort_order, id`,
+		`SELECT id, session_id, name, sort_order, start_at_sec, break_sec
+		 FROM competition WHERE session_id = ? ORDER BY sort_order, id`,
 		sessionID)
 	if err != nil {
 		return nil, err
@@ -216,7 +229,7 @@ func (s *Store) ListCompetitions(sessionID int64) ([]model.Competition, error) {
 	out := []model.Competition{}
 	for rows.Next() {
 		var c model.Competition
-		if err := rows.Scan(&c.ID, &c.SessionID, &c.Name, &c.SortOrder); err != nil {
+		if err := rows.Scan(&c.ID, &c.SessionID, &c.Name, &c.SortOrder, &c.StartAtSec, &c.BreakSec); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -226,8 +239,9 @@ func (s *Store) ListCompetitions(sessionID int64) ([]model.Competition, error) {
 
 func (s *Store) GetCompetition(id int64) (*model.Competition, error) {
 	var c model.Competition
-	err := s.db.QueryRow(`SELECT id, session_id, name, sort_order FROM competition WHERE id = ?`, id).
-		Scan(&c.ID, &c.SessionID, &c.Name, &c.SortOrder)
+	err := s.db.QueryRow(
+		`SELECT id, session_id, name, sort_order, start_at_sec, break_sec FROM competition WHERE id = ?`,
+		id).Scan(&c.ID, &c.SessionID, &c.Name, &c.SortOrder, &c.StartAtSec, &c.BreakSec)
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +266,14 @@ func (s *Store) CreateCompetition(sessionID int64, name string) (int64, error) {
 
 func (s *Store) RenameCompetition(id int64, name string) error {
 	_, err := s.db.Exec(`UPDATE competition SET name = ? WHERE id = ?`, name, id)
+	return err
+}
+
+// UpdateCompetitionTimes setzt die Turnier-Startzeit (Sekunden seit
+// Mitternacht, 0 = nicht gesetzt) und die Pause zwischen den Disziplinen.
+func (s *Store) UpdateCompetitionTimes(id int64, startAtSec, breakSec int) error {
+	_, err := s.db.Exec(`UPDATE competition SET start_at_sec = ?, break_sec = ? WHERE id = ?`,
+		startAtSec, breakSec, id)
 	return err
 }
 
@@ -395,6 +417,36 @@ func (s *Store) ListParticipants(disciplineID int64) ([]model.Participant, error
 			p.TotalOverride = &v
 		}
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// CountActiveParticipants zählt pro Disziplin die nicht zurückgezogenen
+// Teilnehmer (für die Turnier-Zeitplanung: Disziplin-Dauer = Teilnehmer × Slot).
+func (s *Store) CountActiveParticipants(disciplineIDs []int64) (map[int64]int, error) {
+	out := map[int64]int{}
+	if len(disciplineIDs) == 0 {
+		return out, nil
+	}
+	q := `SELECT discipline_id, COUNT(*) FROM participant
+	      WHERE withdrawn = 0 AND discipline_id IN (` +
+		strings.Repeat("?,", len(disciplineIDs)-1) + `?) GROUP BY discipline_id`
+	args := make([]any, len(disciplineIDs))
+	for i, id := range disciplineIDs {
+		args[i] = id
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
 	}
 	return out, rows.Err()
 }

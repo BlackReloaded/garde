@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"turnier/internal/model"
 )
@@ -158,6 +159,34 @@ func (a *App) adminCompDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.respondAdmin(w, r, "Turnier (inkl. Disziplinen & Teilnehmer) gelöscht", true)
+}
+
+// adminCompTimes legt die geplante Turnier-Startzeit (HH:MM, leer = nicht
+// gesetzt) und die Pause zwischen den Disziplinen (Minuten) fest.
+func (a *App) adminCompTimes(w http.ResponseWriter, r *http.Request) {
+	id := parseID(r.FormValue("id"))
+	if id == 0 {
+		a.respondAdmin(w, r, "id fehlt", false)
+		return
+	}
+	startAt := 0
+	if v := strings.TrimSpace(r.FormValue("start_at")); v != "" {
+		tt, err := time.Parse("15:04", v)
+		if err != nil {
+			a.respondAdmin(w, r, "Ungültige Startzeit (Format HH:MM)", false)
+			return
+		}
+		startAt = tt.Hour()*3600 + tt.Minute()*60
+	}
+	breakMin := formInt(r, "break_min", 0)
+	if breakMin > 240 { // 4 h Pause sind genug
+		breakMin = 240
+	}
+	if err := a.store.UpdateCompetitionTimes(id, startAt, breakMin*60); err != nil {
+		a.respondAdmin(w, r, err.Error(), false)
+		return
+	}
+	a.respondAdmin(w, r, "Turnier-Zeiten gespeichert", true)
 }
 
 // ---------- Disziplin ----------

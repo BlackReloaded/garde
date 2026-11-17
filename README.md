@@ -182,6 +182,18 @@ aus den Zeitstempeln der eingegebenen Noten abgeleitet:
   (nachfolgende Slots starten, sobald der vorherige fertig ist).
 - **Block-Ende:** Ende des letzten Tänzers.
 
+**Geplante Startzeit + Pausen (pro Turnier, Admin → „Turniere"):** Man kann
+je Turnier eine **Turnier-Startzeit** (Uhrzeit, leer = nicht gesetzt) und eine
+**Pause zwischen den Disziplinen** (Minuten) hinterlegen. Daraus wird ein
+Fahrplan abgeleitet: Start der Disziplin = Turnier-Start + Dauer der
+vorherigen Disziplinen (Teilnehmer × Slot-Default) + Pausen – sichtbar in der
+Live-Ansicht (Kopfzeile „Turnier-Start · Pause", Disziplin-Fahrplan über der
+Zeitplan-Tabelle, „Nächste Disziplin: … ca. HH:MM" in der Status-Card).
+Solange in der aktuellen Disziplin **noch keine einzige Note** existiert und
+der geplante Start in der Zukunft liegt, startet die Prognose pünktlich zum
+geplanten Start statt „ab jetzt"; die erste eingetragene Note verankert sie
+dann in der Realität (Realität schlägt Plan).
+
 Alle Werte aktualisieren sich live mit jedem Poll (5 s) und nach jeder
 Score-Eingabe (HTMX OOB-Swap). In der Kopfzeile ist der verwendete
 `Ø Slot`-Schätzwert eingeblendet.
@@ -234,7 +246,7 @@ angezeigt – und im Admin-Bereich mit Badge sichtbar.
 | `GET /` | Live-Ansicht (Session/Turnier/Disziplin via Query `s/t/d` + Cookie) – öffentlich (Lese-Recht) |
 | `GET /partials/refresh` | OOB-Partial-Updates (Status, beide Platzierungen, Zeitplan) – Polling alle 5 s; Score-Panel nur mit explizitem `sel` (wird beim Polling nicht neu gerendert, damit Fokus/Eingabe erhalten bleiben) |
 | `POST /score` | `participant_id`, `judge`, `value` (leer = Note löschen); antwortet mit OOB-Updates – **nur mit Session (Rolle bewerten/admin)** |
-| `GET /admin`, `POST /admin/*` | Verwaltung: Session/Turnier/Disziplin anlegen · umbenennen · löschen, Disziplin-Zeiten, Teilnehmer (inline bearbeiten, ↑↓ verschieben, löschen), Stern/Zurückgezogen, Noten-Reset, CSV-Import/-Export – **nur mit Session (Rolle admin)** |
+| `GET /admin`, `POST /admin/*` | Verwaltung: Session/Turnier/Disziplin anlegen · umbenennen · löschen, Turnier-Startzeit &amp; Disziplinen-Pause, Disziplin-Zeiten, Teilnehmer (inline bearbeiten, ↑↓ verschieben, löschen), Stern/Zurückgezogen, Noten-Reset, CSV-Import/-Export – **nur mit Session (Rolle admin)** |
 | `GET /auth/login` | Login-Start (Redirect zum Provider, `next=` für Ziel-URL) |
 | `GET /auth/callback` | Callback: State (OIDC: +Nonce/PKCE) prüfen, Identität per ID-Token bzw. Profile-Endpunkt, Rolle aus Allowlist, Session-Cookie setzen |
 | `POST /auth/logout` | Session löschen (POST gegen <img>-CSRF) |

@@ -64,6 +64,21 @@
             </form>
           </span>
         </div>
+        <div class="row-form" style="padding-left:10px">
+          <form class="inline-form" style="display:flex;gap:10px;flex:1;flex-wrap:wrap"
+            hx-post="/admin/comp/times" hx-target="body" hx-swap="outerHTML">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <label style="font-size:12px;color:var(--muted)">Startzeit
+              <input type="time" name="start_at" {{if .StartAtSec}}value="{{fmtTimeInput .StartAtSec}}"{{end}}
+                title="geplanter Turnier-Start, leer = nicht gesetzt">
+            </label>
+            <label style="font-size:12px;color:var(--muted)">Pause zw. Disziplinen (min)
+              <input type="number" name="break_min" value="{{minOf .BreakSec}}" min="0" step="1"
+                title="0 = keine Pause">
+            </label>
+            <button class="btn small" type="submit">Speichern</button>
+          </form>
+        </div>
         {{end}}
         {{else}}
         <p class="panel-hint">Zuerst eine Session anlegen oder öffnen.</p>

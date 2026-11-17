@@ -31,6 +31,12 @@ type Settings struct {
 	ScoringDefSec int
 	WalkOnSec     int
 	NumJudges     int
+	// AnchorAt ist die geplante Startzeit der Disziplin (aus der
+	// Turnier-Zeitplanung). Solange noch keine einzige Note existiert,
+	// startet die Prognose pünktlich zu dieser Zeit statt "ab jetzt" –
+	// aber nur wenn sie in der Zukunft liegt. Die erste eingetragene
+	// Note verankert die Prognose dann in der Realität.
+	AnchorAt *time.Time
 }
 
 // ResultEntry ist die Prognose für einen einzelnen Teilnehmer.
@@ -145,6 +151,24 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 
 	res := Result{Now: now, Entries: entries, SlotSec: slotSec, ScoringSec: scoringSec}
 
+	// Anker der Prognose: Standard ist "jetzt". Ist eine geplante
+	// Startzeit (AnchorAt) gesetzt, liegt sie in der Zukunft und existiert
+	// noch keine einzige Note, startet der Zeitplan pünktlich – die erste
+	// eingetragene Note verankert die Prognose dann in der Realität.
+	anchor := now
+	if set.AnchorAt != nil && !set.AnchorAt.Before(now) {
+		anyScore := false
+		for _, p := range participants {
+			if len(p.Scores) > 0 {
+				anyScore = true
+				break
+			}
+		}
+		if !anyScore {
+			anchor = *set.AnchorAt
+		}
+	}
+
 	// Ersten nicht fertigen Teilnehmer finden.
 	curIdx := -1
 	for i, e := range entries {
@@ -181,15 +205,17 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 	switch {
 	case entries[curIdx].NumScores > 0:
 		// Wird bereits bewertet: Rest der Punktezeit anteilig.
+		// (Hier ist anchor == now, denn Noten schalten den Plan-Anchor ab.)
 		rest := float64(scoringSec) * float64(n-entries[curIdx].NumScores) / float64(n)
-		endCurrent = now.Add(time.Duration(rest) * time.Second)
+		endCurrent = anchor.Add(time.Duration(rest) * time.Second)
 	default:
-		// Noch nicht angetreten: kompletter Slot ab jetzt.
-		endCurrent = now.Add(time.Duration(slotSec) * time.Second)
+		// Noch nicht angetreten: kompletter Slot ab Anker
+		// (geplante Startzeit, sonst jetzt).
+		endCurrent = anchor.Add(time.Duration(slotSec) * time.Second)
 	}
 	entries[curIdx].IsCurrent = true
 	if entries[curIdx].NumScores == 0 {
-		t := now
+		t := anchor
 		entries[curIdx].StartEst = &t
 	}
 	t := endCurrent
@@ -214,6 +240,51 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 		res.BlockEnd = &t
 	}
 	return res
+}
+
+// PlanDiscipline ist die geplante Start-/Endzeit einer Disziplin im
+// Turnier-Plan.
+type PlanDiscipline struct {
+	ID       int64
+	Name     string
+	StartEst *time.Time
+	EndEst   *time.Time
+}
+
+// PlanDisciplineStarts rechnet die geplanten Startzeiten der Disziplinen
+// eines Turniers: Turnier-Startzeit (Sekunden seit Mitternacht) + Dauer
+// der vorherigen Disziplinen (nicht zurückgezogene Teilnehmer × Slot-
+// Default der Disziplin) + Pause dazwischen. Ohne gesetzte Startzeit
+// (startAtSec <= 0) gibt es keinen Plan (nil). Leere Disziplinen werden
+// übersprungen – es fällt auch keine Pause rundherum an.
+func PlanDisciplineStarts(startAtSec, breakSec int, now time.Time,
+	discs []model.Discipline, activeParts map[int64]int) []PlanDiscipline {
+	if startAtSec <= 0 || len(discs) == 0 {
+		return nil
+	}
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	t := midnight.Add(time.Duration(startAtSec) * time.Second)
+	out := make([]PlanDiscipline, 0, len(discs))
+	first := true
+	for _, d := range discs {
+		n := activeParts[d.ID]
+		if n <= 0 {
+			continue
+		}
+		if !first && breakSec > 0 {
+			t = t.Add(time.Duration(breakSec) * time.Second)
+		}
+		first = false
+		slot := d.WalkOnSec + d.MaxDanceSec + d.ScoringDefSec
+		if slot < 60 {
+			slot = 60
+		}
+		s := t
+		e := t.Add(time.Duration(n*slot) * time.Second)
+		out = append(out, PlanDiscipline{ID: d.ID, Name: d.Name, StartEst: &s, EndEst: &e})
+		t = e
+	}
+	return out
 }
 
 func firstLast(scores []model.ScoreAt) (first, last time.Time, ok bool) {

@@ -77,10 +77,18 @@ func fmtDur(sec int) string {
 	return fmt.Sprintf("%d:%02d", m, s)
 }
 
+// fmtTimeInput rendert Sekunden-seit-Mitternacht als "HH:MM"
+// (für <input type="time"> in der Admin-UI).
+func fmtTimeInput(sec int) string {
+	return fmt.Sprintf("%02d:%02d", sec/3600, (sec%3600)/60)
+}
+
 func init() {
 	funcs["fmtHM"] = fmtHM
 	funcs["fmtHMS"] = fmtHMS
 	funcs["fmtDur"] = fmtDur
+	funcs["fmtTimeInput"] = fmtTimeInput
+	funcs["minOf"] = func(sec int) int { return sec / 60 }
 	funcs["pct"] = func(a, b int) int {
 		if b <= 0 {
 			return 0
@@ -140,6 +148,14 @@ type LiveData struct {
 	Finished    bool
 	NowUnix     int64 // für die Uhr
 	SlotLabel   string
+
+	// Turnier-Planung (Wettkampf-Ebene): Startzeit + Pausen →
+	// geplante Disziplin-Starts (Anzeige + Anker der Prognose,
+	// solange noch keine Note existiert).
+	CompStart    *time.Time               // geplante Turnier-Startzeit (heute), nil = nicht gesetzt
+	CompBreakSec int                      // Pause zwischen Disziplinen (Sekunden)
+	PlanDiscs    []schedule.PlanDiscipline
+	NextDisc     *schedule.PlanDiscipline // nächste Disziplin im Plan (nil = keine sichtbar)
 
 	// PanelPID ist der im Punkteeingabe-Panel ausgewählte Teilnehmer
 	// (Default: gerade an der Reihe; für Korrekturen wählbar).
@@ -211,8 +227,10 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 		NumJ:     d.NumJudges,
 		NowUnix:  now.Unix(),
 	}
-	// Session-ID des Turniers.
+	// Session-ID + Zeiten des Turniers (Startzeit, Pause zwischen Disziplinen).
+	var comp *model.Competition
 	if c, err := a.store.GetCompetition(d.CompetitionID); err == nil {
+		comp = c
 		ld.SessionID = c.SessionID
 	}
 	// Alle Disziplinen des Turniers (für den Selektor).
@@ -221,6 +239,38 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 		return nil, err
 	}
 	ld.Discs = allDiscs
+
+	// Turnier-Planung: geplante Startzeiten der Disziplinen aus
+	// Turnier-Startzeit + Disziplin-Dauern (Teilnehmer × Slot-Default)
+	// + Pausen. Dient der Anzeige (Turnier-Start, Disziplin-Plan,
+	// „nächste Disziplin") und als Anker der Prognose der aktuellen
+	// Disziplin, solange dort noch keine Note existiert.
+	var anchorAt *time.Time
+	if comp != nil && comp.StartAtSec > 0 {
+		ids := make([]int64, 0, len(allDiscs))
+		for _, dd := range allDiscs {
+			ids = append(ids, dd.ID)
+		}
+		if counts, err := a.store.CountActiveParticipants(ids); err == nil {
+			plan := schedule.PlanDisciplineStarts(comp.StartAtSec, comp.BreakSec, now, allDiscs, counts)
+			ld.PlanDiscs = plan
+			start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).
+				Add(time.Duration(comp.StartAtSec) * time.Second)
+			ld.CompStart = &start
+			ld.CompBreakSec = comp.BreakSec
+			for i := range plan {
+				if plan[i].ID == d.ID {
+					anchorAt = plan[i].StartEst
+				}
+				// Nächste Disziplin: erste geplante Startzeit in der
+				// Zukunft, die nicht die aktuelle Disziplin ist.
+				if plan[i].ID != d.ID && plan[i].StartEst.After(now) {
+					ld.NextDisc = &plan[i]
+					break
+				}
+			}
+		}
+	}
 
 	// Aktive Teilnehmer (ohne zurückgezogene) in Startreihenfolge:
 	// null-padding-Nummern ("001" …) zuerst, dann die übrigen numerisch.
@@ -252,6 +302,7 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 		ScoringDefSec: d.ScoringDefSec,
 		WalkOnSec:     d.WalkOnSec,
 		NumJudges:     d.NumJudges,
+		AnchorAt:      anchorAt,
 	}, infos, now)
 	ld.Sched = &schedResult
 	ld.Finished = ld.Sched.Finished

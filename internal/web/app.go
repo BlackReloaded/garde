@@ -78,6 +78,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/session/delete", admin(a.adminSessionDelete))
 	mux.HandleFunc("POST /admin/comp/create", admin(a.adminCompCreate))
 	mux.HandleFunc("POST /admin/comp/rename", admin(a.adminCompRename))
+	mux.HandleFunc("POST /admin/comp/times", admin(a.adminCompTimes))
 	mux.HandleFunc("POST /admin/comp/delete", admin(a.adminCompDelete))
 	mux.HandleFunc("POST /admin/disc/create", admin(a.adminDiscCreate))
 	mux.HandleFunc("POST /admin/disc/update", admin(a.adminDiscUpdate))

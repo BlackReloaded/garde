@@ -1,5 +1,7 @@
 {{define "topmeta"}}
 <div class="topmeta">
+  {{if .CompStart}}Turnier-Start: <b>{{fmtHM .CompStart}}</b>
+    {{if gt .CompBreakSec 0}} · Pause: <b>{{fmtDur .CompBreakSec}}</b>{{end}} · {{end}}
   {{if .LastScoreAt}}Letzte Note: <b>{{fmtHMS .LastScoreAt}}</b> · {{end}}
   Ø Slot: <b>{{.SlotLabel}}</b>
   {{if .Finished}}· <b>Block fertig</b>{{end}}

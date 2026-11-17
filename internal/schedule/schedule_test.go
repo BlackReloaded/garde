@@ -182,3 +182,143 @@ func TestComputeBreakIgnored(t *testing.T) {
 		t.Fatalf("SlotSec = %d, want 540 (Default-Gap 180 + Punktezeit 360)", res.SlotSec)
 	}
 }
+
+func TestComputeAnchorAtPlannedStart(t *testing.T) {
+	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
+		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
+	now := time.Date(2026, 10, 27, 8, 0, 0, 0, time.Local)
+	anchor := now.Add(1 * time.Hour)
+	set.AnchorAt = &anchor
+	ps := []model.ParticipantInfo{
+		{ID: 1, StartNr: "1", Name: "A"},
+		{ID: 2, StartNr: "2", Name: "B"},
+	}
+	res := Compute(set, ps, now)
+	// res.Now bleibt "jetzt", der Plan verschiebt nur die Schätzungen.
+	if !res.Now.Equal(now) {
+		t.Fatalf("Now = %v, want %v", res.Now, now)
+	}
+	if res.Current == nil || res.Current.StartEst == nil {
+		t.Fatal("Current.StartEst fehlt")
+	}
+	// Teilnehmer 1 startet pünktlich zum geplanten Start (nicht "ab jetzt").
+	if !res.Current.StartEst.Equal(anchor) {
+		t.Fatalf("StartEst[0] = %v, want %v", res.Current.StartEst, anchor)
+	}
+	// Ende = Anker + 1 Slot (Default 300 s).
+	if !res.Current.EndEst.Equal(anchor.Add(300 * time.Second)) {
+		t.Fatalf("EndEst[0] = %v, want %v", res.Current.EndEst, anchor.Add(300*time.Second))
+	}
+	// Teilnehmer 2: Anker + 1 Slot.
+	if res.Next == nil || res.Next.StartEst == nil ||
+		!res.Next.StartEst.Equal(anchor.Add(300 * time.Second)) {
+		t.Fatalf("StartEst[1] = %v, want %v",
+			res.Next.StartEst, anchor.Add(300*time.Second))
+	}
+	// Block-Ende = Anker + 2 Slots.
+	if !res.BlockEnd.Equal(anchor.Add(2 * 300 * time.Second)) {
+		t.Fatalf("BlockEnd = %v, want %v", res.BlockEnd, anchor.Add(600*time.Second))
+	}
+}
+
+func TestComputeAnchorPastIgnored(t *testing.T) {
+	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
+		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.Local)
+	past := now.Add(-2 * time.Hour)
+	set.AnchorAt = &past
+	ps := []model.ParticipantInfo{
+		{ID: 1, StartNr: "1", Name: "A"},
+	}
+	res := Compute(set, ps, now)
+	// Geplanter Start in der Vergangenheit (Turnier ist spät gestartet)
+	// -> Prognose startet "ab jetzt", wie ohne Plan.
+	if res.Current == nil || res.Current.StartEst == nil || !res.Current.StartEst.Equal(now) {
+		t.Fatalf("StartEst = %v, want %v", res.Current.StartEst, now)
+	}
+}
+
+func TestComputeAnchorWithScoresIgnored(t *testing.T) {
+	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
+		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.Local)
+	future := now.Add(3 * time.Hour)
+	set.AnchorAt = &future
+	// P1 fertig (7 Noten), P2: 2 Noten seit kurz -> es existieren Noten,
+	// der Plan-Anchor darf nicht greifen.
+	p1 := mkScores(7, now.Add(-20*time.Minute), 0, 60*time.Second)
+	p2 := mkScores(2, now.Add(-3*time.Minute), 0, 90*time.Second)
+	ps := []model.ParticipantInfo{
+		{ID: 1, StartNr: "1", Name: "P1", Scores: p1},
+		{ID: 2, StartNr: "2", Name: "P2", Scores: p2},
+	}
+	res := Compute(set, ps, now)
+	if res.Current == nil || res.Current.ID != 2 {
+		t.Fatal("Current sollte P2 sein")
+	}
+	// P2 wird bewertet (2/7): Ende = now + Punktezeit * 5/7 – NICHT der
+	// Plan-Anchor in 3 h.
+	if !res.Current.EndEst.Before(future) {
+		t.Fatalf("EndEst = %v, liegt nach dem Plan-Anchor %v – Anchor greift fälschlich",
+			res.Current.EndEst, future)
+	}
+}
+
+func TestPlanDisciplineStarts(t *testing.T) {
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local)
+	discs := []model.Discipline{
+		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
+		{ID: 2, Name: "Leer", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
+		{ID: 3, Name: "Paare", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
+	}
+	counts := map[int64]int{1: 2, 3: 3} // Disziplin 2 leer
+	// Turnier-Start 09:00, Pause 10 min, Slot-Default je Disziplin 300 s.
+	plan := PlanDisciplineStarts(9*3600, 10*60, now, discs, counts)
+	if len(plan) != 2 {
+		t.Fatalf("Plan-Länge = %d, want 2 (leere Disziplin übersprungen)", len(plan))
+	}
+	want1s := time.Date(2026, 3, 15, 9, 0, 0, 0, time.Local)
+	want1e := time.Date(2026, 3, 15, 9, 10, 0, 0, time.Local)
+	// 2 Tänzer × 5 min = 10 min.
+	if !plan[0].StartEst.Equal(want1s) || !plan[0].EndEst.Equal(want1e) {
+		t.Fatalf("Plan[0] = %v–%v, want %v–%v",
+			plan[0].StartEst, plan[0].EndEst, want1s, want1e)
+	}
+	// + 10 min Pause -> Paare 09:20; 3 Tänzer × 5 min = 15 min -> 09:35.
+	want3s := time.Date(2026, 3, 15, 9, 20, 0, 0, time.Local)
+	want3e := time.Date(2026, 3, 15, 9, 35, 0, 0, time.Local)
+	if !plan[1].StartEst.Equal(want3s) || !plan[1].EndEst.Equal(want3e) {
+		t.Fatalf("Plan[1] = %v–%v, want %v–%v",
+			plan[1].StartEst, plan[1].EndEst, want3s, want3e)
+	}
+	if plan[1].ID != 3 {
+		t.Fatalf("Plan[1].ID = %d, want 3", plan[1].ID)
+	}
+}
+
+func TestPlanDisciplineNoBreakAtEnd(t *testing.T) {
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local)
+	discs := []model.Discipline{
+		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
+		{ID: 2, Name: "Paare", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
+	}
+	counts := map[int64]int{1: 1, 2: 1}
+	plan := PlanDisciplineStarts(9*3600, 30*60, now, discs, counts)
+	// Garde 09:00–09:05, Pause 30 min, Paare 09:35–09:40 – und KEINE
+	// Pause nach der letzten Disziplin (Ende bleibt 09:40).
+	wantEnd := time.Date(2026, 3, 15, 9, 40, 0, 0, time.Local)
+	if !plan[1].EndEst.Equal(wantEnd) {
+		t.Fatalf("Plan[1].EndEst = %v, want %v", plan[1].EndEst, wantEnd)
+	}
+}
+
+func TestPlanDisciplineNoStart(t *testing.T) {
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local)
+	discs := []model.Discipline{
+		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
+	}
+	counts := map[int64]int{1: 1}
+	if plan := PlanDisciplineStarts(0, 600, now, discs, counts); plan != nil {
+		t.Fatalf("Plan = %v, want nil (keine Startzeit gesetzt)", plan)
+	}
+}

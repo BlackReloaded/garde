@@ -4,6 +4,9 @@
   <div class="label" style="color: var(--green)">Fertig</div>
   <div class="name">Alle Tänze bewertet ✓</div>
   {{if .Sched.BlockEnd}}<div class="meta">Letzte Note um <b>{{fmtHMS .Sched.BlockEnd}}</b></div>{{end}}
+  {{if .NextDisc}}
+  <div class="next-line">Nächste Disziplin: <b>{{.NextDisc.Name}}</b> · ca. <b>{{fmtHM .NextDisc.StartEst}}</b></div>
+  {{end}}
 </div>
 {{else if .Sched.Current}}
 {{with .Sched.Current}}
@@ -16,13 +19,17 @@
       {{if .EndEst}} · fertig ca. <b>{{fmtHM .EndEst}}</b>{{end}}</div>
     <div class="progress"><div class="fill" style="width: {{pct .NumScores $.NumJ}}%"></div></div>
   {{else}}
-    <div class="meta">Noch nicht angetreten · Start ≈ jetzt
+    <div class="meta">Noch nicht angetreten
+      {{if .StartEst}}· Start ca. <b>{{fmtHM .StartEst}}</b>{{end}}
       {{if .EndEst}} · fertig ca. <b>{{fmtHM .EndEst}}</b>{{end}}</div>
     <div class="progress"><div class="fill" style="width: 0%"></div></div>
   {{end}}
   {{if $.Sched.Next}}
   <div class="next-line">Als Nächstes: <b>{{$.Sched.Next.StartNr}} · {{$.Sched.Next.Name}}</b>
     ({{$.Sched.Next.Verein}})</div>
+  {{end}}
+  {{if $.NextDisc}}
+  <div class="next-line">Nächste Disziplin: <b>{{$.NextDisc.Name}}</b> · ca. <b>{{fmtHM $.NextDisc.StartEst}}</b></div>
   {{end}}
 </div>
 {{end}}
