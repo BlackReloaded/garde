@@ -34,4 +34,4 @@ go.work.sum
 internal/store/seed/
 
 # Auslosungslisten mit Teilnehmer-Namen nicht tracken
-Auslosungsliste*.pdf
+Auslosung*.pdf
