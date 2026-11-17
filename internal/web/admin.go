@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"tuniert/internal/model"
+	"turnier/internal/model"
 )
 
 // AdminData ist der Datensatz für die Admin-Ansicht.
@@ -346,7 +346,7 @@ func (a *App) adminCSVExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="tuniert-export.csv"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="turnier-export.csv"`)
 	w.Write([]byte(text))
 }
 

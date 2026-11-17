@@ -1,0 +1,10 @@
+{
+  "name": "turnier – Live-Wertung",
+  "short_name": "turnier",
+  "description": "Live-Wertung für Gardetanz-Turniere",
+  "lang": "de",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef1f5",
+  "theme_color": "#0d1a2c"
+}

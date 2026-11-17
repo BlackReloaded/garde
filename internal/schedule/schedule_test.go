@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"tuniert/internal/model"
+	"turnier/internal/model"
 )
 
 func mkScores(n int, start time.Time, step time.Duration, spread time.Duration) []model.ScoreAt {

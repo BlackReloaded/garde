@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"tuniert/internal/model"
-	"tuniert/internal/schedule"
+	"turnier/internal/model"
+	"turnier/internal/schedule"
 )
 
 // funcs sind die Template-Hilfsfunktionen.

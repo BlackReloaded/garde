@@ -17,7 +17,7 @@ package schedule
 import (
 	"time"
 
-	"tuniert/internal/model"
+	"turnier/internal/model"
 )
 
 // gapCapSec: größter plausibler Abstand "von Bewertung zur nächsten

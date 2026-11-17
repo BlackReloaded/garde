@@ -9,7 +9,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"tuniert/internal/model"
+	"turnier/internal/model"
 )
 
 // Store kapselt den Datenbankzugriff.

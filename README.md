@@ -1,4 +1,4 @@
-# tuniert
+# turnier
 
 Live-Wertung für Gardetanz-Turniere als **Single-Binary**: Go +
 [HTMX](https://htmx.org) + SQLite ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite),
@@ -10,7 +10,7 @@ HTMX sind via `//go:embed` im Binary eingebettet – lauffähig auch auf Messe-P
 ## Aufbau
 
 ```
-tuniert
+turnier
 ├── main.go                     # Entry-Point, //go:embed web, Flags
 ├── internal/
 │   ├── model/                  # Datenmodell + Wertungslogik (Drop-High/Low, Tiebreak, Ränge)
@@ -25,15 +25,15 @@ tuniert
 ## Starten
 
 ```sh
-go build -o tuniert .
+go build -o turnier .
 ```
 
 Beispiel mit **mailcow** als Login-Provider (empfohlen, s. unten):
 
 ```sh
-./tuniert \
+./turnier \
   -oauth2-base-url https://mail.kohlbau.de \
-  -oidc-client-id tuniert \
+  -oidc-client-id turnier \
   -oidc-client-secret <geheim> \
   -admins "orga1@verein.de,orga2@verein.de"
 ```
@@ -45,15 +45,15 @@ Beispiel mit **mailcow** als Login-Provider (empfohlen, s. unten):
 Beispiel mit einem **OIDC-Provider** (Keycloak, Google, …):
 
 ```sh
-./tuniert \
+./turnier \
   -oidc-issuer https://idp.example.com \
-  -oidc-client-id tuniert \
+  -oidc-client-id turnier \
   -oidc-client-secret <geheim> \
   -admins "orga1@verein.de,orga2@verein.de"
 ```
 
 - `-addr` (Default `:8080`): HTTP-Adresse
-- `-db` (Default `tuniert.db`): Pfad zur SQLite-Datei
+- `-db` (Default `turnier.db`): Pfad zur SQLite-Datei
 
 ## Login & Rechte
 
@@ -73,9 +73,9 @@ gleichzeitig):
 
 Gemeinsam (Pflicht für beide Modi):
 
-- `-oidc-client-id`: Client-ID der registrierten tuniert-App
+- `-oidc-client-id`: Client-ID der registrierten turnier-App
 - `-oidc-client-secret` (Pflicht): Client-Secret – besser per Env
-  `TUNIERT_OIDC_CLIENT_SECRET` (taucht sonst in der Prozessliste auf)
+  `TURNIER_OIDC_CLIENT_SECRET` (taucht sonst in der Prozessliste auf)
 - `-oidc-redirect-url` (Default `http://localhost:8080/auth/callback`):
   Callback-URL, **muss exakt so im Provider registriert sein**
 - `-admins` (optional, v. a. erster Start): Komma-Liste E-Mail-Adressen, die
@@ -112,26 +112,26 @@ ohne Neustart. Nur der Admin kann die Listen ändern
 
 mailcow hat einen **eingebauten OAuth2-Provider** (kein OIDC – daher
 `-oauth2-base-url` statt `-oidc-issuer`). Kein Zusatzsoftware, und wer in
-mailcow 2FA/WebAuthn aktiviert hat, schützt damit auch den tuniert-Login.
+mailcow 2FA/WebAuthn aktiviert hat, schützt damit auch den turnier-Login.
 
 Einmalig einrichten (mailcow-UI, Admin):
 
 1. *Configuration → Access → OAuth2 → **Add OAuth2 client***
-2. **Redirect URI** exakt wie der tuniert-Flag `-oidc-redirect-url`
+2. **Redirect URI** exakt wie der turnier-Flag `-oidc-redirect-url`
    setzen, z. B. `http://192.168.1.50:8080/auth/callback` (lokale Nutzung)
-   oder `https://tuniert.verein.de/auth/callback` (Web-Hosting).
+   oder `https://turnier.verein.de/auth/callback` (Web-Hosting).
 3. Client-ID + Secret aus der UI übernehmen → Start:
 
 ```sh
-./tuniert \
+./turnier \
   -oauth2-base-url https://mail.kohlbau.de \
-  -oidc-client-id tuniert \
+  -oidc-client-id turnier \
   -oidc-client-secret <geheim> \
   -admins "orga1@verein.de"   # nur beim ersten Start (seedet die DB)
 ```
 
 Login-UX: Der User wird zur **mailcow-Login-Seite** umgeleitet (inkl. 2FA,
-falls aktiviert), dort eine **Consent-Seite** bestätigen („tuniert darf sich
+falls aktiviert), dort eine **Consent-Seite** bestätigen („turnier darf sich
 anmelden?") und landet wieder in der App. Identität = Mailbox-Adresse; nur
 Adressen, die in der DB-Rollen-Liste stehen, bekommen Rechte (siehe oben).
 Die Richter (*bewerten*) legt der Admin dann in der Admin-UI an.

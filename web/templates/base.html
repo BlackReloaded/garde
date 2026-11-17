@@ -5,7 +5,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0d1a2c">
-<title>tuniert</title>
+<link rel="manifest" href="/static/manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="turnier">
+<title>turnier</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js" defer></script>
 <script>
@@ -14,6 +19,8 @@
 // Wechsel) bleibt document erhalten, der Body-Inhalt wird ersetzt.
 (function () {
   var drafts = {}; // "teilnehmerID|richter" -> noch nicht abgeschickter Wert
+  // True auf Touch-Geräten (iPhone/iPad): steuert Autofokus und Scrollen.
+  var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 
   function judgeKey(input) {
     var form = input.closest ? input.closest('form') : null;
@@ -28,7 +35,14 @@
     if (!panel) return;
     var inputs = Array.from(panel.querySelectorAll('input[type=number]'));
     for (var i = 0; i < inputs.length; i++) {
-      if (!inputs[i].value) { inputs[i].focus(); return; }
+      if (!inputs[i].value) {
+        inputs[i].focus();
+        // Touch: Feld über der Tastatur sichtbar halten.
+        if (coarse && inputs[i].scrollIntoView) {
+          inputs[i].scrollIntoView({ block: 'center' });
+        }
+        return;
+      }
     }
   }
 
@@ -85,6 +99,22 @@
     if (xhr) { inflight.delete(t); try { xhr.abort(); } catch (_) {} }
   });
 
+  // Tabellen, die breiter sind als der Container, bekommen einen dezenten
+  // Kanten-Fade, damit das horizontale Wischen auf Touch auffindbar ist.
+  // Klassen via JS, damit der Fade nur bei echtem Overflow erscheint.
+  function updateEdgeHints() {
+    var wraps = document.querySelectorAll('.table-wrap');
+    for (var i = 0; i < wraps.length; i++) {
+      var w = wraps[i];
+      var max = w.scrollWidth - w.clientWidth - 1;
+      w.classList.toggle('edg-r', max > 8 && w.scrollLeft < max - 8);
+      w.classList.toggle('edg-l', w.scrollLeft > 8);
+    }
+  }
+  document.addEventListener('scroll', updateEdgeHints, true);
+  window.addEventListener('resize', updateEdgeHints);
+  document.addEventListener('htmx:afterSwap', updateEdgeHints);
+
   function tick() {
     var c = document.getElementById('clock');
     if (!c) return;
@@ -96,7 +126,24 @@
   document.addEventListener('DOMContentLoaded', function () {
     tick();
     setInterval(tick, 1000);
-    setTimeout(focusNextJudge, 300);
+    // Auf Touch nicht auto-fokussieren: das würde die Tastatur aufklappen,
+    // obwohl man evtl. nur die Live-Ansicht anschaut.
+    if (!coarse) setTimeout(focusNextJudge, 300);
+    updateEdgeHints();
+
+    // iOS/Android: Klappt die Tastatur auf, kann das fokussierte Feld
+    // darunter liegen – dann in die Mitte des sichtbaren Bereichs ziehen.
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function () {
+        var el = document.activeElement;
+        if (!el || !el.matches || !el.matches('input, select, textarea')) return;
+        var vv = window.visualViewport;
+        var r = el.getBoundingClientRect();
+        if (r.bottom > vv.offsetTop + vv.height - 8 || r.top < vv.offsetTop) {
+          el.scrollIntoView({ block: 'center' });
+        }
+      });
+    }
 
     // Fokus nach Panel-Ersatz (View-Wechsel oder Teilnehmerwechsel):
     // Das fokussierte Eingabefeld liegt im alten DOM-Teil, den HTMX

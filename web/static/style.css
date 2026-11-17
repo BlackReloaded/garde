@@ -1,5 +1,5 @@
 /* ============================================================
-   tuniert – Live-Wertung für Gardetanz-Turniere
+   turnier – Live-Wertung für Gardetanz-Turniere
    Design: helles Karten-Layout mit dunkler Kopfzeile ("Scoreboard").
    Responsive: Desktop (2 Spalten) → Tablet (1 Spalte) → Phone.
    Offline-fähig: nur System-Fonts, keine externen Assets.
@@ -39,10 +39,17 @@ html, body {
   line-height: 1.45;
 }
 
-body { -webkit-tap-highlight-color: transparent; }
+body {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; /* kein Doppel-Tap-Zoom, Pinch-Zoom bleibt */
+}
 
 a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
+/* Hover-Styles nur für echte Hover-Geräte: auf Touch bleibt :hover sonst
+   nach dem Tippen kleben (Element bleibt bis zum nächsten Tap hervorgehoben). */
+@media (hover: hover) {
+  a:hover { text-decoration: underline; }
+}
 
 button, input, select, textarea {
   font: inherit;
@@ -51,6 +58,13 @@ button, input, select, textarea {
 }
 
 button { cursor: pointer; }
+
+/* Kein Textauswahl-/Lange-Drücken-Menü auf Bedienelementen */
+button, a.btn {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 
 /* ---------- Kopfzeile ---------- */
 .topbar {
@@ -87,10 +101,12 @@ button { cursor: pointer; }
   padding: 7px 11px;
   border-radius: 9px;
 }
-.topbar .navlinks a:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, .1);
-  text-decoration: none;
+@media (hover: hover) {
+  .topbar .navlinks a:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .1);
+    text-decoration: none;
+  }
 }
 .topbar .authchip {
   font-size: 14px;
@@ -109,10 +125,12 @@ button { cursor: pointer; }
   padding: 7px 11px;
   border-radius: 9px;
 }
-.topbar .linkbtn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, .1);
-  text-decoration: none;
+@media (hover: hover) {
+  .topbar .linkbtn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .1);
+    text-decoration: none;
+  }
 }
 
 .live-dot {
@@ -387,6 +405,28 @@ button { cursor: pointer; }
   margin: 0 -4px;
   padding: 0 4px;
 }
+/* Kanten-Fade als Hinweis auf horizontales Wischen. Klassen werden per JS
+   gesetzt, nur wenn die Tabelle tatsächlich übersteht – auf breiten
+   Screens bleibt es also ohne (falschen) Hinweis. */
+.table-wrap.edg-r {
+  background-image: linear-gradient(90deg, rgba(16, 24, 40, 0) 0%, rgba(16, 24, 40, .13) 100%);
+  background-size: 28px 100%;
+  background-repeat: no-repeat;
+  background-position: right center;
+}
+.table-wrap.edg-l {
+  background-image: linear-gradient(270deg, rgba(16, 24, 40, 0) 0%, rgba(16, 24, 40, .13) 100%);
+  background-size: 28px 100%;
+  background-repeat: no-repeat;
+  background-position: left center;
+}
+.table-wrap.edg-l.edg-r {
+  background-image:
+    linear-gradient(90deg, rgba(16, 24, 40, 0) 0%, rgba(16, 24, 40, .13) 100%),
+    linear-gradient(270deg, rgba(16, 24, 40, 0) 0%, rgba(16, 24, 40, .13) 100%);
+  background-size: 28px 100%, 28px 100%;
+  background-position: right center, left center;
+}
 table {
   width: 100%;
   border-collapse: collapse;
@@ -514,11 +554,23 @@ td .total-val { font-size: 18px; font-weight: 800; }
   background: #fff;
   color: var(--ink);
 }
-.btn:hover { background: var(--grey-soft); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn.primary:hover { background: var(--accent-dark); }
 .btn.danger { color: var(--red); border-color: #f2c7c3; }
-.btn.danger:hover { background: var(--red-soft); }
+@media (hover: hover) {
+  .btn:hover { background: var(--grey-soft); }
+  .btn.primary:hover { background: var(--accent-dark); }
+  .btn.danger:hover { background: var(--red-soft); }
+}
+/* Touch: statt klebendem Hover-State Feedback im gedrückten Zustand */
+@media (hover: none) {
+  .btn:active { background: var(--grey-soft); }
+  .btn.primary:active { background: var(--accent-dark); }
+  .btn.danger:active { background: var(--red-soft); }
+  .topbar .navlinks a:active, .topbar .linkbtn:active {
+    color: #fff;
+    background: rgba(255, 255, 255, .1);
+  }
+}
 .btn.small { font-size: 13px; min-height: 32px; padding: 4px 10px; border-radius: 8px; }
 .inline-form { display: inline; }
 .row-form {
@@ -612,6 +664,19 @@ legend { font-size: 13px; font-weight: 700; color: var(--muted); padding: 0 6px;
   /* Größere Touch-Ziele */
   .btn { min-height: 42px; }
   .btn.small { min-height: 36px; }
+}
+
+/* ---------- Touch-Geräte (iPhone/iPad): größere Zielflächen ----------
+   (pointer: coarse) fängt jede Touch-Bedienung ab, auch iPad. Steht
+   hinter dem Phone-Block, damit die größeren Werte dort gewinnen. */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn.small { min-height: 40px; }
+  .topbar .navlinks a, .topbar .linkbtn { padding: 10px 12px; }
+  .row-form input[type=text], .row-form input[type=number] { min-height: 44px; }
+  .admin-table input[type=text] { min-height: 40px; }
+  .admin-table input[type=checkbox],
+  .row-form input[type=checkbox] { width: 24px; height: 24px; }
 }
 
 /* ---------- Reduzierte Bewegung ---------- */

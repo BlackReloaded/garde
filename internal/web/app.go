@@ -5,11 +5,18 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 
-	"tuniert/internal/model"
-	"tuniert/internal/store"
+	"turnier/internal/model"
+	"turnier/internal/store"
 )
+
+// Go's MIME-Tabelle kennt .webmanifest nicht (würde text/plain liefern) –
+// ohne korrekten Typ verwerfen manche Browser das PWA-Manifest.
+func init() {
+	mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
 
 // App bündelt Store, Templates, statische Assets und Auth.
 type App struct {

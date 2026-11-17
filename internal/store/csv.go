@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"tuniert/internal/model"
+	"turnier/internal/model"
 )
 
 // CSVHeader ist die Kopfzeile der Import-/Exportdatei.

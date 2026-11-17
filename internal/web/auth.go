@@ -43,13 +43,13 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"tuniert/internal/model"
-	"tuniert/internal/store"
+	"turnier/internal/model"
+	"turnier/internal/store"
 )
 
 const (
-	sessionCookie = "tuniert_session"
-	stateCookie   = "tuniert_auth_state"
+	sessionCookie = "turnier_session"
+	stateCookie   = "turnier_auth_state"
 	stateTTL      = 5 * time.Minute
 )
 
@@ -856,7 +856,7 @@ func (a *Auth) errorPage(w http.ResponseWriter, status int, title, msg string) {
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tuniert · %s</title>
+<title>turnier · %s</title>
 <link rel="stylesheet" href="/static/style.css"></head>
 <body>
 <div class="wrap auth-error">

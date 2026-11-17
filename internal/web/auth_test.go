@@ -19,8 +19,8 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"tuniert/internal/model"
-	"tuniert/internal/store"
+	"turnier/internal/model"
+	"turnier/internal/store"
 )
 
 // ---------- Test-Setup ----------
@@ -40,13 +40,13 @@ func newTestApp(t *testing.T, cfg AuthConfig) (*App, *store.Store) {
 		cfg.Issuer = "https://idp.test"
 	}
 	if cfg.ClientID == "" {
-		cfg.ClientID = "tuniert"
+		cfg.ClientID = "turnier"
 	}
 	if cfg.ClientSecret == "" {
 		cfg.ClientSecret = "secret"
 	}
 	if cfg.RedirectURL == "" {
-		cfg.RedirectURL = "http://tuniert.test/auth/callback"
+		cfg.RedirectURL = "http://turnier.test/auth/callback"
 	}
 	if cfg.SessionTTL == 0 {
 		cfg.SessionTTL = time.Hour
@@ -416,7 +416,7 @@ func finishLogin(t *testing.T, mux http.Handler, authURL url.URL, sc *http.Cooki
 
 func TestOIDCCallbackFlow(t *testing.T) {
 	email, name := "judge@x.de", "J. Ridger"
-	fp := newFakeProvider(t, "tuniert", email, name)
+	fp := newFakeProvider(t, "turnier", email, name)
 	app, st := newTestApp(t, AuthConfig{Issuer: fp.srv.URL})
 	giveRole(t, st, model.RoleScorer, email)
 	mux := app.Handler()
@@ -426,7 +426,7 @@ func TestOIDCCallbackFlow(t *testing.T) {
 		t.Fatalf("Redirect nach %q, wollte %s/auth", authURL.String(), fp.srv.URL)
 	}
 	q := authURL.Query()
-	if q.Get("client_id") != "tuniert" || q.Get("state") == "" || q.Get("nonce") == "" {
+	if q.Get("client_id") != "turnier" || q.Get("state") == "" || q.Get("nonce") == "" {
 		t.Fatalf("Auth-URL fehlt client_id/state/nonce: %s", authURL.String())
 	}
 	// PKCE: challenge im Auth-URL = S256(Verifier aus dem State-Cookie).
@@ -538,6 +538,40 @@ func TestLivePageReadonlyForGuest(t *testing.T) {
 	}
 	if !strings.Contains(body, "Abmelden") || strings.Contains(body, `href="/admin"`) {
 		t.Fatal("Scorer-Ansicht: Abmelden fehlt bzw. Admin-Link sichtbar")
+	}
+}
+
+// TestPWAHead: Live-Seite verweist auf das Web-App-Manifest (iPhone/iPad:
+// „Zum Startbildschirm“) und der Manifest-Request liefert den korrekten
+// MIME-Typ – ohne den akzeptieren manche Browser das Manifest nicht.
+func TestPWAHead(t *testing.T) {
+	app, st := newTestApp(t, AuthConfig{})
+	seedLive(t, st)
+	mux := app.Handler()
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	body := w.Body.String()
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /: Status %d, wollte 200", w.Code)
+	}
+	for _, want := range []string{
+		`<link rel="manifest" href="/static/manifest.webmanifest">`,
+		`<meta name="apple-mobile-web-app-capable" content="yes">`,
+		`<meta name="apple-mobile-web-app-title" content="turnier">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Head ohne: %s", want)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/static/manifest.webmanifest", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /static/manifest.webmanifest: Status %d, wollte 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/manifest+json" {
+		t.Errorf("Manifest Content-Type = %q, wollte application/manifest+json", ct)
 	}
 }
 
@@ -686,7 +720,7 @@ func TestLiveRenderCompleteScore(t *testing.T) {
 }
 
 func TestOIDCCallbackNotAllowed(t *testing.T) {
-	fp := newFakeProvider(t, "tuniert", "stranger@x.de", "Stranger")
+	fp := newFakeProvider(t, "turnier", "stranger@x.de", "Stranger")
 	app, st := newTestApp(t, AuthConfig{Issuer: fp.srv.URL})
 	giveRole(t, st, model.RoleScorer, "judge@x.de") // stranger ist nicht dabei
 	mux := app.Handler()
@@ -713,7 +747,7 @@ func TestOIDCCallbackNotAllowed(t *testing.T) {
 }
 
 func TestOIDCWrongStateRejected(t *testing.T) {
-	fp := newFakeProvider(t, "tuniert", "judge@x.de", "J.")
+	fp := newFakeProvider(t, "turnier", "judge@x.de", "J.")
 	app, st := newTestApp(t, AuthConfig{Issuer: fp.srv.URL})
 	giveRole(t, st, model.RoleScorer, "judge@x.de")
 	mux := app.Handler()
@@ -762,8 +796,8 @@ func newTestStore(t *testing.T) *store.Store {
 }
 
 func TestNewAuthProviderModes(t *testing.T) {
-	base := AuthConfig{ClientID: "tuniert", ClientSecret: "secret",
-		RedirectURL: "http://tuniert.test/auth/callback"}
+	base := AuthConfig{ClientID: "turnier", ClientSecret: "secret",
+		RedirectURL: "http://turnier.test/auth/callback"}
 
 	// Weder Issuer noch Base-URL → Fehler.
 	if _, err := NewAuth(newTestStore(t), base); err == nil {
@@ -895,7 +929,7 @@ func newFakeOAuth2(t *testing.T, clientID, redirectURI, email, name string) *fak
 
 func TestOAuth2CallbackFlow(t *testing.T) {
 	email, name := "judge@x.de", "J. Ridger"
-	fp := newFakeOAuth2(t, "tuniert", "http://tuniert.test/auth/callback", email, name)
+	fp := newFakeOAuth2(t, "turnier", "http://turnier.test/auth/callback", email, name)
 	app, st := newTestApp(t, AuthConfig{OAuth2BaseURL: fp.srv.URL})
 	giveRole(t, st, model.RoleScorer, email)
 	mux := app.Handler()
@@ -905,8 +939,8 @@ func TestOAuth2CallbackFlow(t *testing.T) {
 		t.Fatalf("Redirect nach %q, wollte %s/oauth/authorize", authURL.String(), fp.srv.URL)
 	}
 	q := authURL.Query()
-	if q.Get("client_id") != "tuniert" || q.Get("state") == "" ||
-		q.Get("redirect_uri") != "http://tuniert.test/auth/callback" ||
+	if q.Get("client_id") != "turnier" || q.Get("state") == "" ||
+		q.Get("redirect_uri") != "http://turnier.test/auth/callback" ||
 		q.Get("scope") != "profile" || q.Get("response_type") != "code" {
 		t.Fatalf("Auth-URL unvollständig: %s", authURL.String())
 	}
@@ -953,7 +987,7 @@ func TestOAuth2CallbackFlow(t *testing.T) {
 }
 
 func TestOAuth2CallbackNotAllowed(t *testing.T) {
-	fp := newFakeOAuth2(t, "tuniert", "http://tuniert.test/auth/callback",
+	fp := newFakeOAuth2(t, "turnier", "http://turnier.test/auth/callback",
 		"stranger@x.de", "Stranger")
 	app, st := newTestApp(t, AuthConfig{OAuth2BaseURL: fp.srv.URL})
 	giveRole(t, st, model.RoleScorer, "judge@x.de") // stranger ist nicht dabei
@@ -981,7 +1015,7 @@ func TestOAuth2CallbackNotAllowed(t *testing.T) {
 }
 
 func TestOAuth2CallbackWrongState(t *testing.T) {
-	fp := newFakeOAuth2(t, "tuniert", "http://tuniert.test/auth/callback",
+	fp := newFakeOAuth2(t, "turnier", "http://turnier.test/auth/callback",
 		"judge@x.de", "J.")
 	app, st := newTestApp(t, AuthConfig{OAuth2BaseURL: fp.srv.URL})
 	giveRole(t, st, model.RoleScorer, "judge@x.de")
@@ -1019,7 +1053,7 @@ func TestOAuth2ProviderOffline(t *testing.T) {
 
 func TestOAuth2ProfileWithoutEmail(t *testing.T) {
 	// Profile ohne email/username/identifier → Login muss mit 502 scheitern.
-	fp := newFakeOAuth2(t, "tuniert", "http://tuniert.test/auth/callback",
+	fp := newFakeOAuth2(t, "turnier", "http://turnier.test/auth/callback",
 		"judge@x.de", "J.")
 	app, st := newTestApp(t, AuthConfig{OAuth2BaseURL: fp.srv.URL})
 	giveRole(t, st, model.RoleScorer, "judge@x.de")

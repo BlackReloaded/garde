@@ -1,4 +1,4 @@
-module tuniert
+module turnier
 
 go 1.27.3
 

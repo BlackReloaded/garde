@@ -1,4 +1,4 @@
-// tuniert – Live-Wertung für Gardetanz-Turniere.
+// turnier – Live-Wertung für Gardetanz-Turniere.
 //
 // Go + HTMX als Single-Binary: SQLite (ohne CGO), HTMX & Templates eingebettet.
 // Daten werden manuell per CSV-Import geladen (Admin → CSV Import).
@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"tuniert/internal/model"
-	"tuniert/internal/store"
-	"tuniert/internal/web"
+	"turnier/internal/model"
+	"turnier/internal/store"
+	"turnier/internal/web"
 )
 
 //go:embed web
@@ -30,7 +30,7 @@ var assets embed.FS
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP-Adresse")
-	db := flag.String("db", "tuniert.db", "Pfad zur SQLite-Datei")
+	db := flag.String("db", "turnier.db", "Pfad zur SQLite-Datei")
 
 	issuer := flag.String("oidc-issuer", "",
 		"OIDC-Issuer (Discovery-URL des Anbieters), z. B. https://accounts.google.com – "+
@@ -48,9 +48,9 @@ func main() {
 	oauth2Scope := flag.String("oauth2-scope", "profile",
 		"Scope für den generischen OAuth2-Modus (mailcow: profile)")
 	clientID := flag.String("oidc-client-id", "",
-		"OAuth2-Client-ID der im Anbieter registrierten tuniert-App – Pflicht")
-	clientSecret := flag.String("oidc-client-secret", os.Getenv("TUNIERT_OIDC_CLIENT_SECRET"),
-		"OAuth2-Client-Secret (bzw. Env TUNIERT_OIDC_CLIENT_SECRET) – Pflicht")
+		"OAuth2-Client-ID der im Anbieter registrierten turnier-App – Pflicht")
+	clientSecret := flag.String("oidc-client-secret", os.Getenv("TURNIER_OIDC_CLIENT_SECRET"),
+		"OAuth2-Client-Secret (bzw. Env TURNIER_OIDC_CLIENT_SECRET) – Pflicht")
 	redirectURL := flag.String("oidc-redirect-url", "http://localhost:8080/auth/callback",
 		"Callback-URL (muss exakt so im Anbieter registriert sein)")
 	admins := flag.String("admins", "",
@@ -65,13 +65,13 @@ func main() {
 	case *issuer == "" && *oauth2BaseURL == "":
 		log.Fatal("Login-Provider ist Pflicht: entweder -oidc-issuer (OIDC) oder " +
 			"-oauth2-base-url (generisches OAuth2, z. B. mailcow) setzen – " +
-			"ohne Auth startet tuniert nicht.")
+			"ohne Auth startet turnier nicht.")
 	case *issuer != "" && *oauth2BaseURL != "":
 		log.Fatal("Nur EIN Login-Provider ist erlaubt: -oidc-issuer und " +
 			"-oauth2-base-url dürfen nicht gleichzeitig gesetzt sein.")
 	case *clientID == "" || *clientSecret == "":
 		log.Fatal("Login-Client ist Pflicht: -oidc-client-id und -oidc-client-secret " +
-			"setzen (Secret alternativ über Env TUNIERT_OIDC_CLIENT_SECRET).")
+			"setzen (Secret alternativ über Env TURNIER_OIDC_CLIENT_SECRET).")
 	}
 
 	st, err := store.Open(*db)
@@ -118,7 +118,7 @@ func main() {
 	if *oauth2BaseURL != "" {
 		provider = fmt.Sprintf("OAuth2 %s", strings.TrimRight(*oauth2BaseURL, "/"))
 	}
-	log.Printf("tuniert läuft auf http://localhost%s (DB: %s)", *addr, *db)
+	log.Printf("turnier läuft auf http://localhost%s (DB: %s)", *addr, *db)
 	log.Printf("Login-Provider: %s (Callback: %s)", provider, *redirectURL)
 
 	// Rollen-Status (DB) loggen; bei leerer Admin-Liste warnen – sonst

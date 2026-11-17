@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"tuniert/internal/model"
+	"turnier/internal/model"
 )
 
 // ViewParamKey ist der Cookie-Name für die zuletzt gewählte Ansicht.
-const ViewParamKey = "tuniert_view"
+const ViewParamKey = "turnier_view"
 
 func parseID(s string) int64 {
 	v, _ := strconv.ParseInt(s, 10, 64)
@@ -92,7 +92,7 @@ func (a *App) setViewCookie(w http.ResponseWriter, s, t, d int64) {
 }
 
 // selCookieKey merkt sich die gewählte Korrektur-Auswahl des Punkteeingabe-Panels.
-const selCookieKey = "tuniert_sel"
+const selCookieKey = "turnier_sel"
 
 // explicitSel liest einen expliziten sel-Wert (URL oder Formular).
 func explicitSel(r *http.Request) int64 {
