@@ -59,6 +59,11 @@ func TestAdminBlockCRUD(t *testing.T) {
 		!strings.Contains(body, `value="30"`) {
 		t.Fatal("Admin-Seite zeigt den Block nicht an")
 	}
+	// Dauer frei in Minuten einstellbar (z. B. 60) – keine
+	// 5-Minuten-Schritt-Zwangsvalidierung im Browser.
+	if !strings.Contains(body, `name="duration_min" value="30" min="1" step="1"`) {
+		t.Fatal("Dauer-Feld mit step≠1 – freies Minuten-Eingabe nicht möglich")
+	}
 
 	// Ändern: Position am Ende, 45 min.
 	bid := blocks[0].ID
