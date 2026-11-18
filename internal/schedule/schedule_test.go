@@ -211,7 +211,7 @@ func TestComputeAnchorAtPlannedStart(t *testing.T) {
 	}
 	// Teilnehmer 2: Anker + 1 Slot.
 	if res.Next == nil || res.Next.StartEst == nil ||
-		!res.Next.StartEst.Equal(anchor.Add(300 * time.Second)) {
+		!res.Next.StartEst.Equal(anchor.Add(300*time.Second)) {
 		t.Fatalf("StartEst[1] = %v, want %v",
 			res.Next.StartEst, anchor.Add(300*time.Second))
 	}
@@ -273,7 +273,7 @@ func TestPlanDisciplineStarts(t *testing.T) {
 	}
 	counts := map[int64]int{1: 2, 3: 3} // Disziplin 2 leer
 	// Turnier-Start 09:00, Pause 10 min, Slot-Default je Disziplin 300 s.
-	plan := PlanDisciplineStarts(9*3600, 10*60, now, discs, counts)
+	plan := PlanDisciplineStarts(9*3600, 10*60, now, discs, counts, nil)
 	if len(plan) != 2 {
 		t.Fatalf("Plan-Länge = %d, want 2 (leere Disziplin übersprungen)", len(plan))
 	}
@@ -303,7 +303,7 @@ func TestPlanDisciplineNoBreakAtEnd(t *testing.T) {
 		{ID: 2, Name: "Paare", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
 	counts := map[int64]int{1: 1, 2: 1}
-	plan := PlanDisciplineStarts(9*3600, 30*60, now, discs, counts)
+	plan := PlanDisciplineStarts(9*3600, 30*60, now, discs, counts, nil)
 	// Garde 09:00–09:05, Pause 30 min, Paare 09:35–09:40 – und KEINE
 	// Pause nach der letzten Disziplin (Ende bleibt 09:40).
 	wantEnd := time.Date(2026, 3, 15, 9, 40, 0, 0, time.Local)
@@ -318,7 +318,7 @@ func TestPlanDisciplineNoStart(t *testing.T) {
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
 	counts := map[int64]int{1: 1}
-	if plan := PlanDisciplineStarts(0, 600, now, discs, counts); plan != nil {
+	if plan := PlanDisciplineStarts(0, 600, now, discs, counts, nil); plan != nil {
 		t.Fatalf("Plan = %v, want nil (keine Startzeit gesetzt)", plan)
 	}
 }

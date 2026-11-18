@@ -50,6 +50,21 @@ type Discipline struct {
 	SessionName     string
 }
 
+// PlannedBlock ist ein eingeplanter Block in einem Turnier (z. B.
+// "Mittagspause" oder "Siegerehrung"): eine benannte Dauer an einer
+// einstellbaren Position in der Disziplin-Folge.
+type PlannedBlock struct {
+	ID            int64
+	CompetitionID int64
+	Name          string
+	// Position in der Disziplin-Folge (Reihenfolge wie angezeigt):
+	// -1 = am Ende, 0 = am Anfang, 1..N = nach der N-ten Disziplin.
+	// Positionen jenseits der Disziplinen gelten als "am Ende".
+	Position    int
+	DurationSec int
+	SortOrder   int
+}
+
 // Participant ist ein Tanzer/eine Tanzerin oder Gruppe.
 type Participant struct {
 	ID         int64

@@ -12,19 +12,23 @@ import (
 
 // AdminData ist der Datensatz für die Admin-Ansicht.
 type AdminData struct {
-	Auth      AuthState
-	Sessions  []model.Session
-	Comps     []model.Competition
-	Discs     []model.Discipline
-	RolesAdm  []model.RoleEntry // effektive Admin-Liste (Flags ∪ UI)
-	RolesScr  []model.RoleEntry // effektive Bewertende-Liste (Flags ∪ UI)
-	SessionID int64
-	CompID    int64
-	DiscID    int64
-	Disc      *model.Discipline
-	Parts     []model.Participant
-	Flash     string
-	FlashOK   bool
+	Auth     AuthState
+	Sessions []model.Session
+	Comps    []model.Competition
+	Discs    []model.Discipline
+	// CompDiscs/CompBlocks: Disziplinen und eingeplante Blöcke pro
+	// Turnier der Session (für die Position-Auswahl der Blöcke).
+	CompDiscs  map[int64][]model.Discipline
+	CompBlocks map[int64][]model.PlannedBlock
+	RolesAdm   []model.RoleEntry // effektive Admin-Liste (Flags ∪ UI)
+	RolesScr   []model.RoleEntry // effektive Bewertende-Liste (Flags ∪ UI)
+	SessionID  int64
+	CompID     int64
+	DiscID     int64
+	Disc       *model.Discipline
+	Parts      []model.Participant
+	Flash      string
+	FlashOK    bool
 }
 
 func (a *App) adminData(r *http.Request) *AdminData {
@@ -40,6 +44,16 @@ func (a *App) adminData(r *http.Request) *AdminData {
 	}
 	if s != 0 {
 		ad.Comps, _ = a.store.ListCompetitions(s)
+		ad.CompDiscs = make(map[int64][]model.Discipline)
+		ad.CompBlocks = make(map[int64][]model.PlannedBlock)
+		for _, c := range ad.Comps {
+			if ds, err := a.store.ListDisciplines(c.ID); err == nil {
+				ad.CompDiscs[c.ID] = ds
+			}
+			if bs, err := a.store.ListPlannedBlocks(c.ID); err == nil {
+				ad.CompBlocks[c.ID] = bs
+			}
+		}
 	}
 	if t != 0 {
 		ad.Discs, _ = a.store.ListDisciplines(t)
@@ -187,6 +201,93 @@ func (a *App) adminCompTimes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.respondAdmin(w, r, "Turnier-Zeiten gespeichert", true)
+}
+
+// ---------- Geplante Blöcke (Mittagspause, Siegerehrung, …) ----------
+
+// blockFormValide liest und validiert die Block-Formularfelder (Name,
+// Position, Dauer in Minuten).
+func blockFormVals(r *http.Request) (name string, position, durMin int, ok bool) {
+	name = strings.TrimSpace(r.FormValue("name"))
+	position, err := strconv.Atoi(strings.TrimSpace(r.FormValue("position")))
+	if err != nil {
+		position = -1
+	}
+	durMin = formInt(r, "duration_min", 0)
+	if name == "" || position < -1 || durMin < 1 {
+		return name, position, durMin, false
+	}
+	if durMin > 480 { // 8 h Block sind genug
+		durMin = 480
+	}
+	return name, position, durMin, true
+}
+
+func (a *App) adminBlockCreate(w http.ResponseWriter, r *http.Request) {
+	compID := parseID(r.FormValue("comp_id"))
+	if compID == 0 {
+		compID = a.adminData(r).CompID
+	}
+	name, position, durMin, ok := blockFormVals(r)
+	if compID == 0 {
+		a.respondAdmin(w, r, "Bitte zuerst ein Turnier anlegen", false)
+		return
+	}
+	if !ok {
+		a.respondAdmin(w, r, "Name, Position und Dauer (mindestens 1 Minute) sind Pflicht", false)
+		return
+	}
+	// Position jenseits der Disziplinanzahl = am Ende.
+	if discs, err := a.store.ListDisciplines(compID); err == nil && position > len(discs) {
+		position = -1
+	}
+	if _, err := a.store.CreatePlannedBlock(model.PlannedBlock{
+		CompetitionID: compID, Name: name, Position: position, DurationSec: durMin * 60,
+	}); err != nil {
+		a.respondAdmin(w, r, "Anlegen fehlgeschlagen: "+err.Error(), false)
+		return
+	}
+	a.respondAdmin(w, r, "Block „"+name+"“ eingeplant", true)
+}
+
+func (a *App) adminBlockUpdate(w http.ResponseWriter, r *http.Request) {
+	id := parseID(r.FormValue("id"))
+	if id == 0 {
+		a.respondAdmin(w, r, "id fehlt", false)
+		return
+	}
+	b, err := a.store.GetPlannedBlock(id)
+	if err != nil {
+		a.respondAdmin(w, r, "Block nicht gefunden", false)
+		return
+	}
+	name, position, durMin, ok := blockFormVals(r)
+	if !ok {
+		a.respondAdmin(w, r, "Name, Position und Dauer (mindestens 1 Minute) sind Pflicht", false)
+		return
+	}
+	if discs, err := a.store.ListDisciplines(b.CompetitionID); err == nil && position > len(discs) {
+		position = -1
+	}
+	b.Name, b.Position, b.DurationSec = name, position, durMin*60
+	if err := a.store.UpdatePlannedBlock(*b); err != nil {
+		a.respondAdmin(w, r, err.Error(), false)
+		return
+	}
+	a.respondAdmin(w, r, "Block gespeichert", true)
+}
+
+func (a *App) adminBlockDelete(w http.ResponseWriter, r *http.Request) {
+	id := parseID(r.FormValue("id"))
+	if id == 0 {
+		a.respondAdmin(w, r, "id fehlt", false)
+		return
+	}
+	if err := a.store.DeletePlannedBlock(id); err != nil {
+		a.respondAdmin(w, r, err.Error(), false)
+		return
+	}
+	a.respondAdmin(w, r, "Block entfernt", true)
 }
 
 // ---------- Disziplin ----------

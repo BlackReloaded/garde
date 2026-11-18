@@ -264,47 +264,85 @@ func PlanStartAt(startAtSec int, now time.Time) time.Time {
 	return t
 }
 
-// PlanDiscipline ist die geplante Start-/Endzeit einer Disziplin im
-// Turnier-Plan.
-type PlanDiscipline struct {
+// Arten eines Plan-Abschnitts.
+const (
+	SegmentDiscipline = "disziplin"
+	SegmentBlock      = "block"
+)
+
+// PlanSegment ist ein geplanter Abschnitt des Turnier-Plans: eine
+// Disziplin (ID = Disziplin-ID) oder ein eingeplanter Block wie
+// Mittagspause/Siegerehrung (ID = Block-ID).
+type PlanSegment struct {
 	ID       int64
 	Name     string
+	Kind     string // SegmentDiscipline oder SegmentBlock
 	StartEst *time.Time
 	EndEst   *time.Time
 }
 
-// PlanDisciplineStarts rechnet die geplanten Startzeiten der Disziplinen
-// eines Turniers: Turnier-Startzeit (Sekunden seit Mitternacht) + Dauer
-// der vorherigen Disziplinen (nicht zurückgezogene Teilnehmer × Slot-
-// Default der Disziplin) + Pause dazwischen. Ohne gesetzte Startzeit
-// (startAtSec <= 0) gibt es keinen Plan (nil). Leere Disziplinen werden
-// übersprungen – es fällt auch keine Pause rundherum an.
+// PlanDisciplineStarts rechnet den geplanten Ablauf eines Turniers:
+// Turnier-Startzeit (Sekunden seit Mitternacht, s. PlanStartAt) + Dauer
+// der Disziplinen (nicht zurückgezogene Teilnehmer × Slot-Default) +
+// eingeplante Blöcke an ihrer Position (Mittagspause, Siegerehrung, …)
+// + Pause dazwischen. Ohne gesetzte Startzeit (startAtSec <= 0) gibt es
+// keine Plan-Basis (nil); ohne Disziplinen UND ohne Blöcke ebenso.
+// Leere Disziplinen werden
+// übersprungen – es fällt auch keine Pause rundherum an; Blöcke an
+// ihrer Position erscheinen trotzdem. Die Pause gilt zwischen je zwei
+// aufeinanderfolgenden Abschnitten (Disziplin–Disziplin,
+// Disziplin–Block, Block–Disziplin), aber nicht vor dem ersten.
 func PlanDisciplineStarts(startAtSec, breakSec int, now time.Time,
-	discs []model.Discipline, activeParts map[int64]int) []PlanDiscipline {
-	if startAtSec <= 0 || len(discs) == 0 {
+	discs []model.Discipline, activeParts map[int64]int,
+	blocks []model.PlannedBlock) []PlanSegment {
+	if startAtSec <= 0 || (len(discs) == 0 && len(blocks) == 0) {
 		return nil
 	}
 	t := PlanStartAt(startAtSec, now)
-	out := make([]PlanDiscipline, 0, len(discs))
-	first := true
-	for _, d := range discs {
-		n := activeParts[d.ID]
-		if n <= 0 {
-			continue
-		}
-		if !first && breakSec > 0 {
+	out := make([]PlanSegment, 0, len(discs)+len(blocks))
+	addSeg := func(seg PlanSegment, dur time.Duration) {
+		if len(out) > 0 && breakSec > 0 {
 			t = t.Add(time.Duration(breakSec) * time.Second)
 		}
-		first = false
-		slot := d.WalkOnSec + d.MaxDanceSec + d.ScoringDefSec
-		if slot < 60 {
-			slot = 60
-		}
 		s := t
-		e := t.Add(time.Duration(n*slot) * time.Second)
-		out = append(out, PlanDiscipline{ID: d.ID, Name: d.Name, StartEst: &s, EndEst: &e})
+		e := t.Add(dur)
+		seg.StartEst = &s
+		seg.EndEst = &e
+		out = append(out, seg)
 		t = e
 	}
+	// addBlocks platziert alle Blöcke an der Position pos:
+	// 0 = am Anfang, 1..N = nach der N-ten Disziplin, -1 = am Ende.
+	// Positionen jenseits der Disziplinanzahl gelten als "am Ende".
+	addBlocks := func(pos int) {
+		for _, b := range blocks {
+			if b.DurationSec <= 0 {
+				continue
+			}
+			p := b.Position
+			if p > len(discs) {
+				p = -1
+			}
+			if p == pos {
+				addSeg(PlanSegment{ID: b.ID, Name: b.Name, Kind: SegmentBlock},
+					time.Duration(b.DurationSec)*time.Second)
+			}
+		}
+	}
+	addBlocks(0)
+	for i, d := range discs {
+		n := activeParts[d.ID]
+		if n > 0 {
+			slot := d.WalkOnSec + d.MaxDanceSec + d.ScoringDefSec
+			if slot < 60 {
+				slot = 60
+			}
+			addSeg(PlanSegment{ID: d.ID, Name: d.Name, Kind: SegmentDiscipline},
+				time.Duration(n*slot)*time.Second)
+		}
+		addBlocks(i + 1)
+	}
+	addBlocks(-1)
 	return out
 }
 

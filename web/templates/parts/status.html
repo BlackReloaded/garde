@@ -4,8 +4,8 @@
   <div class="label" style="color: var(--green)">Fertig</div>
   <div class="name">Alle Tänze bewertet ✓</div>
   {{if .Sched.BlockEnd}}<div class="meta">Letzte Note um <b>{{fmtHMS .Sched.BlockEnd}}</b></div>{{end}}
-  {{if .NextDisc}}
-  <div class="next-line">Nächste Disziplin: <b>{{.NextDisc.Name}}</b> · ca. <b>{{fmtHM .NextDisc.StartEst}}</b></div>
+  {{if .NextSeg}}
+  <div class="next-line">{{if eq .NextSeg.Kind "block"}}Als Nächstes:{{else}}Nächste Disziplin:{{end}} <b>{{.NextSeg.Name}}</b> · ca. <b>{{fmtHM .NextSeg.StartEst}}</b></div>
   {{end}}
 </div>
 {{else if .Sched.Current}}
@@ -28,8 +28,8 @@
   <div class="next-line">Als Nächstes: <b>{{$.Sched.Next.StartNr}} · {{$.Sched.Next.Name}}</b>
     ({{$.Sched.Next.Verein}})</div>
   {{end}}
-  {{if $.NextDisc}}
-  <div class="next-line">Nächste Disziplin: <b>{{$.NextDisc.Name}}</b> · ca. <b>{{fmtHM $.NextDisc.StartEst}}</b></div>
+  {{if $.NextSeg}}
+  <div class="next-line">{{if eq $.NextSeg.Kind "block"}}Als Nächstes:{{else}}Nächste Disziplin:{{end}} <b>{{$.NextSeg.Name}}</b> · ca. <b>{{fmtHM $.NextSeg.StartEst}}</b></div>
   {{end}}
 </div>
 {{end}}

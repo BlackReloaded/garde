@@ -30,6 +30,13 @@ var funcs = template.FuncMap{
 		return out
 	},
 	"join": strings.Join,
+	"add":  func(a, b int) int { return a + b },
+	"div": func(a, b int) int {
+		if b == 0 {
+			return 0
+		}
+		return a / b
+	},
 	// coalesce liefert den ersten nicht-leeren String (z. B. Name, sonst
 	// E-Mail). Der Name darf NICHT "or" sein: Das würde das eingebaute
 	// Template-Funktions-or (Boolean OR) überschreiben und z. B.
@@ -158,13 +165,13 @@ type LiveData struct {
 	NowUnix     int64 // für die Uhr
 	SlotLabel   string
 
-	// Turnier-Planung (Wettkampf-Ebene): Startzeit + Pausen →
-	// geplante Disziplin-Starts (Anzeige + Anker der Prognose,
-	// solange noch keine Note existiert).
-	CompStart    *time.Time               // geplante Turnier-Startzeit (heute), nil = nicht gesetzt
-	CompBreakSec int                      // Pause zwischen Disziplinen (Sekunden)
-	PlanDiscs    []schedule.PlanDiscipline
-	NextDisc     *schedule.PlanDiscipline // nächste Disziplin im Plan (nil = keine sichtbar)
+	// Turnier-Planung (Wettkampf-Ebene): Startzeit + Pausen + eingeplante
+	// Blöcke (Mittagspause, Siegerehrung, …) → geplanter Ablauf
+	// (Anzeige + Anker der Prognose, solange noch keine Note existiert).
+	CompStart    *time.Time             // geplante Turnier-Startzeit, nil = nicht gesetzt
+	CompBreakSec int                    // Pause zwischen den Abschnitten (Sekunden)
+	PlanSegs     []schedule.PlanSegment // geplanter Ablauf (Disziplinen + Blöcke)
+	NextSeg      *schedule.PlanSegment  // nächster Abschnitt im Plan (nil = keiner sichtbar)
 
 	// PanelPID ist der im Punkteeingabe-Panel ausgewählte Teilnehmer
 	// (Default: gerade an der Reihe; für Korrekturen wählbar).
@@ -249,31 +256,50 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	}
 	ld.Discs = allDiscs
 
-	// Turnier-Planung: geplante Startzeiten der Disziplinen aus
-	// Turnier-Startzeit + Disziplin-Dauern (Teilnehmer × Slot-Default)
-	// + Pausen. Dient der Anzeige (Turnier-Start, Disziplin-Plan,
-	// „nächste Disziplin") und als Anker der Prognose der aktuellen
-	// Disziplin, solange dort noch keine Note existiert.
+	// Turnier-Planung: geplanter Ablauf aus Turnier-Startzeit +
+	// Disziplin-Dauern (Teilnehmer × Slot-Default) + eingeplanten Blöcken
+	// (Mittagspause, Siegerehrung, …) + Pausen. Dient der Anzeige
+	// (Turnier-Start, geplanter Ablauf, „als Nächstes") und als Anker der
+	// Prognose der aktuellen Disziplin, solange dort noch keine Note
+	// existiert.
 	var anchorAt *time.Time
-	if comp != nil && comp.StartAtSec > 0 {
+	blocks, err := a.store.ListPlannedBlocks(d.CompetitionID)
+	if err != nil {
+		return nil, err
+	}
+	if comp != nil && (comp.StartAtSec > 0 || len(blocks) > 0) {
 		ids := make([]int64, 0, len(allDiscs))
 		for _, dd := range allDiscs {
 			ids = append(ids, dd.ID)
 		}
 		if counts, err := a.store.CountActiveParticipants(ids); err == nil {
-			plan := schedule.PlanDisciplineStarts(comp.StartAtSec, comp.BreakSec, now, allDiscs, counts)
-			ld.PlanDiscs = plan
-			start := schedule.PlanStartAt(comp.StartAtSec, now)
-			ld.CompStart = &start
+			plan := schedule.PlanDisciplineStarts(comp.StartAtSec, comp.BreakSec, now, allDiscs, counts, blocks)
+			ld.PlanSegs = plan
 			ld.CompBreakSec = comp.BreakSec
+			if comp.StartAtSec > 0 {
+				start := schedule.PlanStartAt(comp.StartAtSec, now)
+				ld.CompStart = &start
+			}
+			// Anker nur aus der aktuellen Disziplin (nicht aus einem
+			// Block mit zufällig gleicher ID); ihre Position bestimmt,
+			// ab wo „als Nächstes“ gesucht wird.
+			curIdx := -1
 			for i := range plan {
-				if plan[i].ID == d.ID {
+				if plan[i].Kind == schedule.SegmentDiscipline && plan[i].ID == d.ID {
 					anchorAt = plan[i].StartEst
+					curIdx = i
+					break
 				}
-				// Nächste Disziplin: erste geplante Startzeit in der
-				// Zukunft, die nicht die aktuelle Disziplin ist.
-				if plan[i].ID != d.ID && plan[i].StartEst.After(now) {
-					ld.NextDisc = &plan[i]
+			}
+			// Als Nächstes: erster Abschnitt in der Zukunft – nach der
+			// aktuellen Disziplin im Plan (sonst: überhaupt).
+			from := 0
+			if curIdx >= 0 {
+				from = curIdx + 1
+			}
+			for i := from; i < len(plan); i++ {
+				if plan[i].StartEst.After(now) {
+					ld.NextSeg = &plan[i]
 					break
 				}
 			}

@@ -117,6 +117,16 @@ func (s *Store) migrate() error {
 			created_at TEXT NOT NULL,
 			PRIMARY KEY (role, email)
 		)`,
+		// Eingeplante Blöcke pro Turnier (Mittagspause, Siegerehrung, …).
+		`CREATE TABLE IF NOT EXISTS planned_block(
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			competition_id INTEGER NOT NULL REFERENCES competition(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			position INTEGER NOT NULL DEFAULT -1,
+			duration_sec INTEGER NOT NULL DEFAULT 0,
+			sort_order INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_block_comp ON planned_block(competition_id)`,
 	}
 	for _, st := range stmts {
 		if _, err := s.db.Exec(st); err != nil {
@@ -279,6 +289,72 @@ func (s *Store) UpdateCompetitionTimes(id int64, startAtSec, breakSec int) error
 
 func (s *Store) DeleteCompetition(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM competition WHERE id = ?`, id)
+	return err
+}
+
+// ---------- Geplante Blöcke (Mittagspause, Siegerehrung, …) ----------
+
+func (s *Store) GetPlannedBlock(id int64) (*model.PlannedBlock, error) {
+	var b model.PlannedBlock
+	err := s.db.QueryRow(
+		`SELECT id, competition_id, name, position, duration_sec, sort_order
+		 FROM planned_block WHERE id = ?`, id).
+		Scan(&b.ID, &b.CompetitionID, &b.Name, &b.Position, &b.DurationSec, &b.SortOrder)
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// ListPlannedBlocks liefert die Blöcke eines Turniers in Anzeigereihenfolge
+// (sort_order, id – für mehrere Blöcke an derselben Position).
+func (s *Store) ListPlannedBlocks(competitionID int64) ([]model.PlannedBlock, error) {
+	rows, err := s.db.Query(
+		`SELECT id, competition_id, name, position, duration_sec, sort_order
+		 FROM planned_block WHERE competition_id = ? ORDER BY sort_order, id`, competitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.PlannedBlock{}
+	for rows.Next() {
+		var b model.PlannedBlock
+		if err := rows.Scan(&b.ID, &b.CompetitionID, &b.Name, &b.Position,
+			&b.DurationSec, &b.SortOrder); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) CreatePlannedBlock(b model.PlannedBlock) (int64, error) {
+	var maxOrder int
+	if err := s.db.QueryRow(
+		`SELECT COALESCE(MAX(sort_order), 0) FROM planned_block WHERE competition_id = ?`,
+		b.CompetitionID).Scan(&maxOrder); err != nil {
+		return 0, err
+	}
+	b.SortOrder = maxOrder + 1
+	res, err := s.db.Exec(
+		`INSERT INTO planned_block(competition_id, name, position, duration_sec, sort_order)
+		 VALUES(?,?,?,?,?)`,
+		b.CompetitionID, b.Name, b.Position, b.DurationSec, b.SortOrder)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdatePlannedBlock(b model.PlannedBlock) error {
+	_, err := s.db.Exec(
+		`UPDATE planned_block SET name = ?, position = ?, duration_sec = ? WHERE id = ?`,
+		b.Name, b.Position, b.DurationSec, b.ID)
+	return err
+}
+
+func (s *Store) DeletePlannedBlock(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM planned_block WHERE id = ?`, id)
 	return err
 }
 

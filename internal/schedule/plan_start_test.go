@@ -59,7 +59,7 @@ func TestPlanDisciplineStartsRollover(t *testing.T) {
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
 	counts := map[int64]int{1: 1}
-	plan := PlanDisciplineStarts(30*60, 0, now, discs, counts)
+	plan := PlanDisciplineStarts(30*60, 0, now, discs, counts, nil)
 	if len(plan) != 1 {
 		t.Fatalf("Plan-Länge = %d, want 1", len(plan))
 	}
