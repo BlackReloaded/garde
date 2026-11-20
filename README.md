@@ -1,4 +1,4 @@
-# turnier
+# Garde
 
 Live-Wertung für Gardetanz-Turniere als **Single-Binary**: Go +
 [HTMX](https://htmx.org) + SQLite ([modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite),
@@ -25,14 +25,14 @@ turnier
 ## Starten
 
 ```sh
-go build -o turnier .
+go build -o garde .
 ```
 
 Beispiel mit **mailcow** als Login-Provider (empfohlen, s. unten):
 
 ```sh
-./turnier \
-  -oauth2-base-url https://mail.kohlbau.de \
+./garde \
+  -oauth2-base-url https://EXAMPLE \
   -oidc-client-id turnier \
   -oidc-client-secret <geheim> \
   -admins "orga1@verein.de,orga2@verein.de"
@@ -45,7 +45,7 @@ Beispiel mit **mailcow** als Login-Provider (empfohlen, s. unten):
 Beispiel mit einem **OIDC-Provider** (Keycloak, Google, …):
 
 ```sh
-./turnier \
+./garde \
   -oidc-issuer https://idp.example.com \
   -oidc-client-id turnier \
   -oidc-client-secret <geheim> \
@@ -60,12 +60,12 @@ Beispiel mit einem **OIDC-Provider** (Keycloak, Google, …):
 Image aus dem Repo bauen und starten (Daten in einem Volume persistieren):
 
 ```sh
-docker build -t turnier .
+docker build -t garde .
 docker run -d --name turnier -p 8080:8080 \
   -v turnier-data:/data \
   turnier \
-  -oauth2-base-url https://mail.kohlbau.de \
-  -oidc-client-id turnier \
+  -oauth2-base-url https://XXXX \
+  -oidc-client-id garde \
   -oidc-client-secret <geheim> \
   -admins "orga1@verein.de"
 ```
@@ -83,7 +83,7 @@ login-pflichtig. Genau **ein** Provider wird konfiguriert (beide Flags nicht
 gleichzeitig):
 
 1. **Generisches OAuth2** (empfohlen, z. B. mailcow):
-   `-oauth2-base-url https://mail.kohlbau.de` – Endpoints
+   `-oauth2-base-url https://EXAMPLE` – Endpoints
    `/oauth/authorize`, `/oauth/token`, `/oauth/profile` werden daraus
    abgeleitet (Override: `-oauth2-authorize-url`, `-oauth2-token-url`,
    `-oauth2-profile-url`, Scope: `-oauth2-scope`, Default `profile`).
@@ -145,7 +145,7 @@ Einmalig einrichten (mailcow-UI, Admin):
 
 ```sh
 ./turnier \
-  -oauth2-base-url https://mail.kohlbau.de \
+  -oauth2-base-url https://EXAMPLE \
   -oidc-client-id turnier \
   -oidc-client-secret <geheim> \
   -admins "orga1@verein.de"   # nur beim ersten Start (seedet die DB)
