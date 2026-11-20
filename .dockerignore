@@ -1,0 +1,8 @@
+.git
+/turnier
+*.exe
+*.db
+*.db-wal
+*.db-shm
+Auslosung*.pdf
+internal/store/seed/
