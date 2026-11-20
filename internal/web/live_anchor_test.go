@@ -32,7 +32,7 @@ func TestLiveAnchorsToPlannedStart(t *testing.T) {
 	now := time.Now()
 	start := now.Add(2 * time.Hour)
 	sec := int(start.Hour())*3600 + int(start.Minute())*60 + int(start.Second())
-	if err := st.UpdateCompetitionTimes(cid, sec, 0); err != nil {
+	if err := st.UpdateCompetitionStart(cid, sec); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,7 +73,7 @@ func TestLiveScheduleShowsPlannedStart(t *testing.T) {
 	now := time.Now()
 	start := now.Add(90 * time.Minute)
 	sec := int(start.Hour())*3600 + int(start.Minute())*60 + int(start.Second())
-	if err := st.UpdateCompetitionTimes(cid, sec, 0); err != nil {
+	if err := st.UpdateCompetitionStart(cid, sec); err != nil {
 		t.Fatal(err)
 	}
 

@@ -32,8 +32,6 @@ type Competition struct {
 	// StartAtSec ist die geplante Startzeit des Turniers in Sekunden seit
 	// Mitternacht (0 = nicht gesetzt), z. B. 9*3600+30*60 = 09:30.
 	StartAtSec int
-	// BreakSec ist die Pause zwischen zwei Disziplinen (0 = keine Pause).
-	BreakSec int
 }
 
 // Disziplin ist eine bewertete Kategorie (z. B. "Solo weiblich", "Garde").

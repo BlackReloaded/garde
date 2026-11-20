@@ -146,7 +146,7 @@ func TestLiveShowsBlocksInPlan(t *testing.T) {
 		start.Hour(), start.Minute(), 0, 0, time.Local)
 	midnight := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.Local)
 	sec := int(start.Sub(midnight) / time.Second)
-	if err := st.UpdateCompetitionTimes(cid, sec, 0); err != nil {
+	if err := st.UpdateCompetitionStart(cid, sec); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreatePlannedBlock(model.PlannedBlock{
@@ -205,7 +205,7 @@ func TestLiveLaterDisciplineAnchorsAndNextBlock(t *testing.T) {
 		now.Hour()+3, now.Minute(), 0, 0, time.Local)
 	midnight := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.Local)
 	sec := int(start.Sub(midnight) / time.Second)
-	if err := st.UpdateCompetitionTimes(cid, sec, 0); err != nil {
+	if err := st.UpdateCompetitionStart(cid, sec); err != nil {
 		t.Fatal(err)
 	}
 	// Mittagspause nach Disziplin 1 (30 min), Siegerehrung am Ende.

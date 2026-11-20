@@ -272,8 +272,8 @@ func TestPlanDisciplineStarts(t *testing.T) {
 		{ID: 3, Name: "Paare", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
 	counts := map[int64]int{1: 2, 3: 3} // Disziplin 2 leer
-	// Turnier-Start 09:00, Pause 10 min, Slot-Default je Disziplin 300 s.
-	plan := PlanDisciplineStarts(9*3600, 10*60, now, discs, counts, nil)
+	// Turnier-Start 09:00, keine Pause, Slot-Default je Disziplin 300 s.
+	plan := PlanDisciplineStarts(9*3600, now, discs, counts, nil)
 	if len(plan) != 2 {
 		t.Fatalf("Plan-Länge = %d, want 2 (leere Disziplin übersprungen)", len(plan))
 	}
@@ -284,9 +284,9 @@ func TestPlanDisciplineStarts(t *testing.T) {
 		t.Fatalf("Plan[0] = %v–%v, want %v–%v",
 			plan[0].StartEst, plan[0].EndEst, want1s, want1e)
 	}
-	// + 10 min Pause -> Paare 09:20; 3 Tänzer × 5 min = 15 min -> 09:35.
-	want3s := time.Date(2026, 3, 15, 9, 20, 0, 0, time.Local)
-	want3e := time.Date(2026, 3, 15, 9, 35, 0, 0, time.Local)
+	// direkt danach (ohne Pause): Paare 09:10; 3 Tänzer × 5 min = 15 min -> 09:25.
+	want3s := time.Date(2026, 3, 15, 9, 10, 0, 0, time.Local)
+	want3e := time.Date(2026, 3, 15, 9, 25, 0, 0, time.Local)
 	if !plan[1].StartEst.Equal(want3s) || !plan[1].EndEst.Equal(want3e) {
 		t.Fatalf("Plan[1] = %v–%v, want %v–%v",
 			plan[1].StartEst, plan[1].EndEst, want3s, want3e)
@@ -296,17 +296,17 @@ func TestPlanDisciplineStarts(t *testing.T) {
 	}
 }
 
-func TestPlanDisciplineNoBreakAtEnd(t *testing.T) {
+func TestPlanDisciplineNoFixedGaps(t *testing.T) {
 	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local)
 	discs := []model.Discipline{
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 		{ID: 2, Name: "Paare", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
 	counts := map[int64]int{1: 1, 2: 1}
-	plan := PlanDisciplineStarts(9*3600, 30*60, now, discs, counts, nil)
-	// Garde 09:00–09:05, Pause 30 min, Paare 09:35–09:40 – und KEINE
-	// Pause nach der letzten Disziplin (Ende bleibt 09:40).
-	wantEnd := time.Date(2026, 3, 15, 9, 40, 0, 0, time.Local)
+	plan := PlanDisciplineStarts(9*3600, now, discs, counts, nil)
+	// Garde 09:00–09:05, direkt danach Paare 09:05–09:10 – ohne feste
+	// Pause zwischen den Disziplinen.
+	wantEnd := time.Date(2026, 3, 15, 9, 10, 0, 0, time.Local)
 	if !plan[1].EndEst.Equal(wantEnd) {
 		t.Fatalf("Plan[1].EndEst = %v, want %v", plan[1].EndEst, wantEnd)
 	}
@@ -318,7 +318,7 @@ func TestPlanDisciplineNoStart(t *testing.T) {
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
 	counts := map[int64]int{1: 1}
-	if plan := PlanDisciplineStarts(0, 600, now, discs, counts, nil); plan != nil {
+	if plan := PlanDisciplineStarts(0, now, discs, counts, nil); plan != nil {
 		t.Fatalf("Plan = %v, want nil (keine Startzeit gesetzt)", plan)
 	}
 }

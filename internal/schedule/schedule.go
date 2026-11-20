@@ -284,15 +284,13 @@ type PlanSegment struct {
 // PlanDisciplineStarts rechnet den geplanten Ablauf eines Turniers:
 // Turnier-Startzeit (Sekunden seit Mitternacht, s. PlanStartAt) + Dauer
 // der Disziplinen (nicht zurückgezogene Teilnehmer × Slot-Default) +
-// eingeplante Blöcke an ihrer Position (Mittagspause, Siegerehrung, …)
-// + Pause dazwischen. Ohne gesetzte Startzeit (startAtSec <= 0) gibt es
-// keine Plan-Basis (nil); ohne Disziplinen UND ohne Blöcke ebenso.
-// Leere Disziplinen werden
-// übersprungen – es fällt auch keine Pause rundherum an; Blöcke an
-// ihrer Position erscheinen trotzdem. Die Pause gilt zwischen je zwei
-// aufeinanderfolgenden Abschnitten (Disziplin–Disziplin,
-// Disziplin–Block, Block–Disziplin), aber nicht vor dem ersten.
-func PlanDisciplineStarts(startAtSec, breakSec int, now time.Time,
+// eingeplante Blöcke an ihrer Position (Mittagspause, Siegerehrung, …).
+// Zwischen den Abschnitten gibt es keine feste Pause – Disziplinen und
+// Blöcke laufen direkt aneinander. Ohne gesetzte Startzeit
+// (startAtSec <= 0) gibt es keine Plan-Basis (nil); ohne Disziplinen UND
+// ohne Blöcke ebenso. Leere Disziplinen werden übersprungen; Blöcke an
+// ihrer Position erscheinen trotzdem.
+func PlanDisciplineStarts(startAtSec int, now time.Time,
 	discs []model.Discipline, activeParts map[int64]int,
 	blocks []model.PlannedBlock) []PlanSegment {
 	if startAtSec <= 0 || (len(discs) == 0 && len(blocks) == 0) {
@@ -301,9 +299,6 @@ func PlanDisciplineStarts(startAtSec, breakSec int, now time.Time,
 	t := PlanStartAt(startAtSec, now)
 	out := make([]PlanSegment, 0, len(discs)+len(blocks))
 	addSeg := func(seg PlanSegment, dur time.Duration) {
-		if len(out) > 0 && breakSec > 0 {
-			t = t.Add(time.Duration(breakSec) * time.Second)
-		}
 		s := t
 		e := t.Add(dur)
 		seg.StartEst = &s

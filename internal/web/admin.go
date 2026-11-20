@@ -176,7 +176,7 @@ func (a *App) adminCompDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // adminCompTimes legt die geplante Turnier-Startzeit (HH:MM, leer = nicht
-// gesetzt) und die Pause zwischen den Disziplinen (Minuten) fest.
+// gesetzt) fest.
 func (a *App) adminCompTimes(w http.ResponseWriter, r *http.Request) {
 	id := parseID(r.FormValue("id"))
 	if id == 0 {
@@ -192,11 +192,7 @@ func (a *App) adminCompTimes(w http.ResponseWriter, r *http.Request) {
 		}
 		startAt = tt.Hour()*3600 + tt.Minute()*60
 	}
-	breakMin := formInt(r, "break_min", 0)
-	if breakMin > 240 { // 4 h Pause sind genug
-		breakMin = 240
-	}
-	if err := a.store.UpdateCompetitionTimes(id, startAt, breakMin*60); err != nil {
+	if err := a.store.UpdateCompetitionStart(id, startAt); err != nil {
 		a.respondAdmin(w, r, err.Error(), false)
 		return
 	}

@@ -104,7 +104,6 @@ func init() {
 	funcs["fmtHMS"] = fmtHMS
 	funcs["fmtDur"] = fmtDur
 	funcs["fmtTimeInput"] = fmtTimeInput
-	funcs["minOf"] = func(sec int) int { return sec / 60 }
 	funcs["pct"] = func(a, b int) int {
 		if b <= 0 {
 			return 0
@@ -165,13 +164,13 @@ type LiveData struct {
 	NowUnix     int64 // für die Uhr
 	SlotLabel   string
 
-	// Turnier-Planung (Wettkampf-Ebene): Startzeit + Pausen + eingeplante
-	// Blöcke (Mittagspause, Siegerehrung, …) → geplanter Ablauf
-	// (Anzeige + Anker der Prognose, solange noch keine Note existiert).
-	CompStart    *time.Time             // geplante Turnier-Startzeit, nil = nicht gesetzt
-	CompBreakSec int                    // Pause zwischen den Abschnitten (Sekunden)
-	PlanSegs     []schedule.PlanSegment // geplanter Ablauf (Disziplinen + Blöcke)
-	NextSeg      *schedule.PlanSegment  // nächster Abschnitt im Plan (nil = keiner sichtbar)
+	// Turnier-Planung (Wettkampf-Ebene): Startzeit + eingeplante Blöcke
+	// (Mittagspause, Siegerehrung, …) → geplanter Ablauf (Anzeige + Anker
+	// der Prognose, solange noch keine Note existiert). Zwischen den
+	// Abschnitten gibt es keine feste Pause mehr.
+	CompStart *time.Time             // geplante Turnier-Startzeit, nil = nicht gesetzt
+	PlanSegs  []schedule.PlanSegment // geplanter Ablauf (Disziplinen + Blöcke)
+	NextSeg   *schedule.PlanSegment  // nächster Abschnitt im Plan (nil = keiner sichtbar)
 
 	// PanelPID ist der im Punkteeingabe-Panel ausgewählte Teilnehmer
 	// (Default: gerade an der Reihe; für Korrekturen wählbar).
@@ -223,7 +222,7 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Das Turnier der Disziplin (Session-ID + Zeiten: Startzeit, Pause).
+	// Das Turnier der Disziplin (Session-ID + geplante Startzeit).
 	comp, err := a.store.GetCompetition(d.CompetitionID)
 	if err != nil {
 		return nil, err
@@ -258,10 +257,9 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 
 	// Turnier-Planung: geplanter Ablauf aus Turnier-Startzeit +
 	// Disziplin-Dauern (Teilnehmer × Slot-Default) + eingeplanten Blöcken
-	// (Mittagspause, Siegerehrung, …) + Pausen. Dient der Anzeige
-	// (Turnier-Start, geplanter Ablauf, „als Nächstes") und als Anker der
-	// Prognose der aktuellen Disziplin, solange dort noch keine Note
-	// existiert.
+	// (Mittagspause, Siegerehrung, …). Dient der Anzeige (Turnier-Start,
+	// geplanter Ablauf, „als Nächstes") und als Anker der Prognose der
+	// aktuellen Disziplin, solange dort noch keine Note existiert.
 	var anchorAt *time.Time
 	blocks, err := a.store.ListPlannedBlocks(d.CompetitionID)
 	if err != nil {
@@ -273,9 +271,8 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 			ids = append(ids, dd.ID)
 		}
 		if counts, err := a.store.CountActiveParticipants(ids); err == nil {
-			plan := schedule.PlanDisciplineStarts(comp.StartAtSec, comp.BreakSec, now, allDiscs, counts, blocks)
+			plan := schedule.PlanDisciplineStarts(comp.StartAtSec, now, allDiscs, counts, blocks)
 			ld.PlanSegs = plan
-			ld.CompBreakSec = comp.BreakSec
 			if comp.StartAtSec > 0 {
 				start := schedule.PlanStartAt(comp.StartAtSec, now)
 				ld.CompStart = &start

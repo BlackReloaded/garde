@@ -55,6 +55,27 @@ Beispiel mit einem **OIDC-Provider** (Keycloak, Google, …):
 - `-addr` (Default `:8080`): HTTP-Adresse
 - `-db` (Default `turnier.db`): Pfad zur SQLite-Datei
 
+### Docker
+
+Image aus dem Repo bauen und starten (Daten in einem Volume persistieren):
+
+```sh
+docker build -t turnier .
+docker run -d --name turnier -p 8080:8080 \
+  -v turnier-data:/data \
+  turnier \
+  -oauth2-base-url https://mail.kohlbau.de \
+  -oidc-client-id turnier \
+  -oidc-client-secret <geheim> \
+  -admins "orga1@verein.de"
+```
+
+- SQLite-Datei liegt in `/data/turnier.db` – Volume `turnier-data` mounten.
+- Alle anderen Flags wie oben (`-addr`, `-db`, OIDC/OAuth2, …).
+- CI pusht bei jedem Push nach `main` bzw. Tag (`v*`) ein Multi-Arch-Image
+  (amd64/arm64) nach **GHCR**: `ghcr.io/<owner>/turnier`
+  (Tags: `latest` + `sha-<hash>`; bei Version-Tags zusätzlich `<tag>`).
+
 ## Login & Rechte
 
 **Ohne Login-Konfiguration startet die App nicht** – Datenänderungen sind immer
@@ -182,15 +203,17 @@ aus den Zeitstempeln der eingegebenen Noten abgeleitet:
   (nachfolgende Slots starten, sobald der vorherige fertig ist).
 - **Block-Ende:** Ende des letzten Tänzers.
 
-**Geplante Startzeit + Pausen (pro Turnier, Admin → „Turniere"):** Man kann
-je Turnier eine **Turnier-Startzeit** (Uhrzeit, leer = nicht gesetzt) und eine
-**Pause zwischen den Disziplinen** (Minuten) hinterlegen. Daraus wird ein
-Fahrplan abgeleitet: Start der Disziplin = Turnier-Start + Dauer der
-vorherigen Disziplinen (Teilnehmer × Slot-Default) + Pausen – sichtbar in der
-Live-Ansicht (Kopfzeile „Turnier-Start · Pause", Disziplin-Fahrplan über der
-Zeitplan-Tabelle, „Nächste Disziplin: … ca. HH:MM" in der Status-Card).
-Solange in der aktuellen Disziplin **noch keine einzige Note** existiert und
-der geplante Start in der Zukunft liegt, startet die Prognose pünktlich zum
+**Geplante Startzeit (pro Turnier, Admin → „Turniere"):** Man kann je
+Turnier eine **Turnier-Startzeit** (Uhrzeit, leer = nicht gesetzt)
+hinterlegen. Daraus wird ein Fahrplan abgeleitet: Start der Disziplin =
+Turnier-Start + Dauer der vorherigen Disziplinen (Teilnehmer ×
+Slot-Default) und ggf. eingeplanter Blöcke (Mittagspause, Siegerehrung) –
+die Abschnitte laufen direkt aneinander, es gibt **keine feste Pause**
+zwischen den Disziplinen. Sichtbar in der Live-Ansicht (Kopfzeile
+„Turnier-Start", Disziplin-Fahrplan über der Zeitplan-Tabelle, „Nächste
+Disziplin/Als Nächstes: … ca. HH:MM" in der Status-Card). Solange in der
+aktuellen Disziplin **noch keine einzige Note** existiert und der
+geplante Start in der Zukunft liegt, startet die Prognose pünktlich zum
 geplanten Start statt „ab jetzt"; die erste eingetragene Note verankert sie
 dann in der Realität (Realität schlägt Plan).
 
@@ -246,7 +269,7 @@ angezeigt – und im Admin-Bereich mit Badge sichtbar.
 | `GET /` | Live-Ansicht (Session/Turnier/Disziplin via Query `s/t/d` + Cookie) – öffentlich (Lese-Recht) |
 | `GET /partials/refresh` | OOB-Partial-Updates (Status, beide Platzierungen, Zeitplan) – Polling alle 5 s; Score-Panel nur mit explizitem `sel` (wird beim Polling nicht neu gerendert, damit Fokus/Eingabe erhalten bleiben) |
 | `POST /score` | `participant_id`, `judge`, `value` (leer = Note löschen); antwortet mit OOB-Updates – **nur mit Session (Rolle bewerten/admin)** |
-| `GET /admin`, `POST /admin/*` | Verwaltung: Session/Turnier/Disziplin anlegen · umbenennen · löschen, Turnier-Startzeit &amp; Disziplinen-Pause, Disziplin-Zeiten, Teilnehmer (inline bearbeiten, ↑↓ verschieben, löschen), Stern/Zurückgezogen, Noten-Reset, CSV-Import/-Export – **nur mit Session (Rolle admin)** |
+| `GET /admin`, `POST /admin/*` | Verwaltung: Session/Turnier/Disziplin anlegen · umbenennen · löschen, Turnier-Startzeit, Disziplin-Zeiten, Teilnehmer (inline bearbeiten, ↑↓ verschieben, löschen), Stern/Zurückgezogen, Noten-Reset, CSV-Import/-Export – **nur mit Session (Rolle admin)** |
 | `GET /auth/login` | Login-Start (Redirect zum Provider, `next=` für Ziel-URL) |
 | `GET /auth/callback` | Callback: State (OIDC: +Nonce/PKCE) prüfen, Identität per ID-Token bzw. Profile-Endpunkt, Rolle aus Allowlist, Session-Cookie setzen |
 | `POST /auth/logout` | Session löschen (POST gegen <img>-CSRF) |

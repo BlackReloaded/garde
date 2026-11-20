@@ -37,11 +37,10 @@ func TestAdminCompTimes(t *testing.T) {
 	comps, _ := st.ListCompetitions(sessions[0].ID)
 	cid := comps[0].ID
 
-	// Startzeit 09:30 + Pause 10 min speichern.
+	// Startzeit 09:30 speichern.
 	form := url.Values{
-		"id":        {strconv.FormatInt(cid, 10)},
-		"start_at":  {"09:30"},
-		"break_min": {"10"},
+		"id":       {strconv.FormatInt(cid, 10)},
+		"start_at": {"09:30"},
 	}
 	req := httptest.NewRequest("POST", "/admin/comp/times", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -61,15 +60,11 @@ func TestAdminCompTimes(t *testing.T) {
 	if c.StartAtSec != 9*3600+30*60 {
 		t.Fatalf("StartAtSec = %d, want %d", c.StartAtSec, 9*3600+30*60)
 	}
-	if c.BreakSec != 10*60 {
-		t.Fatalf("BreakSec = %d, want %d", c.BreakSec, 600)
-	}
 
 	// Leere Startzeit = nicht gesetzt (0).
 	form = url.Values{
-		"id":        {strconv.FormatInt(cid, 10)},
-		"start_at":  {""},
-		"break_min": {"0"},
+		"id":       {strconv.FormatInt(cid, 10)},
+		"start_at": {""},
 	}
 	req = httptest.NewRequest("POST", "/admin/comp/times", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -80,15 +75,14 @@ func TestAdminCompTimes(t *testing.T) {
 		t.Fatalf("POST (leer): Status %d, wollte 200", w.Code)
 	}
 	c, _ = st.GetCompetition(cid)
-	if c.StartAtSec != 0 || c.BreakSec != 0 {
-		t.Fatalf("StartAtSec/BreakSec = %d/%d, want 0/0", c.StartAtSec, c.BreakSec)
+	if c.StartAtSec != 0 {
+		t.Fatalf("StartAtSec = %d, want 0", c.StartAtSec)
 	}
 
 	// Ungültiges Format wird abgewiesen.
 	form = url.Values{
-		"id":        {strconv.FormatInt(cid, 10)},
-		"start_at":  {"9:75"},
-		"break_min": {"0"},
+		"id":       {strconv.FormatInt(cid, 10)},
+		"start_at": {"9:75"},
 	}
 	req = httptest.NewRequest("POST", "/admin/comp/times", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -121,12 +115,11 @@ func TestLiveShowsPlanAndNextDiscipline(t *testing.T) {
 	}
 
 	// Startzeit setzen (23:55: die 5-Minuten-Disziplin läuft über
-	// Mitternacht, die nächste Disziplin startet am Folgetag um 00:10 –
-	// unabhängig von der Testlaufzeit garantiert in der Zukunft) + Pause.
+	// Mitternacht, die nächste Disziplin startet direkt danach um 00:00 –
+	// unabhängig von der Testlaufzeit garantiert in der Zukunft).
 	form := url.Values{
-		"id":        {strconv.FormatInt(cid, 10)},
-		"start_at":  {"23:55"},
-		"break_min": {"10"},
+		"id":       {strconv.FormatInt(cid, 10)},
+		"start_at": {"23:55"},
 	}
 	req := httptest.NewRequest("POST", "/admin/comp/times", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -137,14 +130,17 @@ func TestLiveShowsPlanAndNextDiscipline(t *testing.T) {
 		t.Fatalf("POST /admin/comp/times: Status %d, wollte 200", w.Code)
 	}
 
-	// Admin-Seite zeigt die eingegebenen Werte.
+	// Admin-Seite zeigt die eingegebene Startzeit.
 	req = httptest.NewRequest("GET", "/admin?s=1", nil)
 	req.AddCookie(ck)
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	body := w.Body.String()
-	if !strings.Contains(body, `value="23:55"`) || !strings.Contains(body, `value="10"`) {
-		t.Fatal("Admin-Seite zeigt Startzeit/Pause nicht korrekt an")
+	if !strings.Contains(body, `value="23:55"`) {
+		t.Fatal("Admin-Seite zeigt Startzeit nicht korrekt an")
+	}
+	if strings.Contains(body, "break_min") {
+		t.Fatal("Admin-Seite zeigt weiterhin ein Pause-Feld")
 	}
 
 	// Live-Seite (erste Disziplin): Turnier-Start + Disziplin-Plan.
@@ -159,12 +155,12 @@ func TestLiveShowsPlanAndNextDiscipline(t *testing.T) {
 	if !strings.Contains(body, "Turnier-Start: <b>23:55</b>") {
 		t.Fatal("Live-Ansicht: Turnier-Start fehlt")
 	}
-	if !strings.Contains(body, "Pause: <b>10:00</b>") {
-		t.Fatal("Live-Ansicht: Pause fehlt")
+	if strings.Contains(body, "Pause:") {
+		t.Fatal("Live-Ansicht: Pause wird weiterhin angezeigt")
 	}
 	if !strings.Contains(body, "class=\"plan-discs\"") || !strings.Contains(body, "Garde 23:55") ||
-		!strings.Contains(body, "Paare 00:10") {
-		t.Fatal("Live-Ansicht: Disziplin-Plan fehlt (Garde 23:55, Paare 00:10)")
+		!strings.Contains(body, "Paare 00:00") {
+		t.Fatal("Live-Ansicht: Disziplin-Plan fehlt (Garde 23:55, Paare 00:00)")
 	}
 	if !strings.Contains(body, "Nächste Disziplin: <b>Paare</b>") {
 		t.Fatal("Live-Ansicht: nächste Disziplin fehlt")
