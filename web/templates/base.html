@@ -152,7 +152,7 @@
       updateEdgeHints();
     }
 
-    function sendScore(form, swapPanel) {
+    function sendScore(form, swapPanel, mark) {
       var body = new URLSearchParams();
       var inputs = form.querySelectorAll('input');
       for (var i = 0; i < inputs.length; i++) {
@@ -168,7 +168,16 @@
         if (!res.ok) return null;
         return res.text();
       }).then(function (html) {
-        if (html) applyScoreReply(html, swapPanel);
+        if (!html) return;
+        applyScoreReply(html, swapPanel);
+        // Grüne "filled"-Markierung: Am Desktop bringt sie der Server mit
+        // dem Panel-Neubau, auf Touch bleibt das Feld stehen – hier also
+        // erst NACH erfolgreicher Antwort selbst setzen (löschen = leeren).
+        // Bei getauschtem Panel kommt sie vom Server – nicht nachtragen.
+        if (!swapPanel && mark && document.contains(mark)) {
+          if (mark.value === '') mark.classList.remove('filled');
+          else mark.classList.add('filled');
+        }
       })['catch'](function () {});
     }
 
@@ -193,7 +202,7 @@
         }
       }
       if (!swapPanel) focusField(nextFreeField(panel, inp));
-      sendScore(form, swapPanel);
+      sendScore(form, swapPanel, inp);
     }
 
     document.addEventListener('keydown', function (e) {
