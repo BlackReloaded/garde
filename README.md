@@ -326,8 +326,10 @@ Admin-Link ist nur für Admins sichtbar; alle geschützten Routen leiten auf
 **Score-Panel:** Zeigt standardmäßig den aktuellen Tänzer; über das Select
 können auch bereits bewertete Tänzer zum Korrigieren ausgewählt werden
 (Auswahl bleibt bis zum Abschluss – dann automatisch zurück zum aktuellen).
-Enter im Feld speichert und fokussiert das nächste freie Feld; leeres Feld +
-Enter löscht die Note.
+Enter im Feld speichert und springt ins nächste freie Feld (Tastatur bleibt
+offen); leeres Feld + Enter löscht die Note. Auf iPad/iPhone wird Enter ohne
+Formular-Submit verarbeitet – Submit würde dort die Bildschirmtastatur
+schließen (Skript in `base.html`, Zweig `coarse`).
 
 ## Entwicklung
 

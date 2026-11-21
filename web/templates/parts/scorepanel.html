@@ -22,6 +22,10 @@
     <b>{{star .Starred}} {{.StartNr}} · {{.Name}}</b>
     {{if .Verein}} – {{.Verein}}{{end}}
   </div>
+  <!-- enterkeyhint="next": auf iPad/iPhone otherwise Beschriftung „Fertig“
+       und die Taste schließt die Zahlen-Tastatur. „Weiter“ lässt sie offen;
+       das Wechselspringen und Speichern erledigt das Skript in base.html
+       (nur Touch – auf dem Desktop ist das hx-post der Formulare der Weg). -->
   <div class="judges">
     {{range $j := seq $.NumJ}}
     <div class="judge-cell">
@@ -32,7 +36,7 @@
         <input type="hidden" name="sel" value="{{$.PanelPID}}">
         {{$v := index $.PanelValues (sub $j 1)}}
         <input type="number" name="value" min="0" max="100" step="1" inputmode="numeric"
-          pattern="[0-9]*" autocomplete="off" enterkeyhint="done"
+          pattern="[0-9]*" autocomplete="off" enterkeyhint="next"
           {{if ge $v 0}}value="{{$v}}" class="filled"{{end}}>
       </form>
     </div>
@@ -51,14 +55,15 @@
       <input type="hidden" name="participant_id" value="{{.PanelPID}}">
       <input type="hidden" name="sel" value="{{.PanelPID}}">
       <input type="number" name="total_override" min="0" max="500" step="1"
-        inputmode="numeric" autocomplete="off" enterkeyhint="done"
+        inputmode="numeric" autocomplete="off" enterkeyhint="next"
         placeholder="offizielle Summe"
         {{if .PanelOverride}}value="{{.PanelOverride}}" class="filled"{{end}}>
     </form>
   </div>
   {{end}}
   <div class="panel-hint">
-    Wert 0–100 eingeben und Enter – das nächste freie Feld wird fokussiert.
+    Wert 0–100 eingeben und Enter – Tastatur bleibt offen, das nächste freie
+    Feld wird fokussiert (auf dem iPad heißt die Enter-Taste „Weiter“).
     Feld leeren + Enter löscht die Note. Auswahl oben: auch bereits bewertete
     Teilnehmer korrigierbar. Bei 7/7: passt die offiziell genannte Gesamtsumme
     nicht zur berechneten, einfach unten eintragen (Enter); leeres Feld +

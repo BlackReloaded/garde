@@ -99,6 +99,139 @@
     if (xhr) { inflight.delete(t); try { xhr.abort(); } catch (_) {} }
   });
 
+  // ---------- Touch (iPhone/iPad): Punkteeingabe über die Zahlentastatur ----------
+  // Auf iOS schließt ein Formular-Submit durch Enter die Tastatur, und ein
+  // focus() außerhalb der Drückgeste öffnet sie nicht wieder. Deshalb hier
+  // (nur Touch) kein Submit: Enter abfangen, den Fokus noch IN der Geste
+  // ins nächste freie Feld legen (Tastatur bleibt offen und wandert mit)
+  // und die Note per fetch senden. Die Antwort aktualisiert Rangliste,
+  // Statistik und Zeitplan sofort; das Eingabe-Panel wird nur neu gebaut,
+  // wenn es sich strukturell ändert (letzte Richter-Note bzw. offizielle
+  // Summe) – bei jeder Note ersetzt, wäre die Tastatur nach jedem Enter zu.
+  // Der Desktop behält den bisherigen Formular-Submit-Weg.
+  if (coarse) {
+    function focusField(el) {
+      if (!el) return;
+      el.focus();
+      if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+    }
+
+    function nextFreeField(panel, except) {
+      var inputs = panel.querySelectorAll('input[type=number]');
+      for (var i = 0; i < inputs.length; i++) {
+        if (inputs[i] !== except && inputs[i].value === '') return inputs[i];
+      }
+      return null;
+    }
+
+    // OOB-Antwort von /score manuell einsetzen (statt HTMX-Swap), damit das
+    // Score-Panel bei laufenden Eingaben ausgelassen werden kann: Sein
+    // innerHTML wäre sonst das fokussierte Feld – würde es mit dem Panel
+    // ausgetauscht, fällt der Fokus auf <body> und die Tastatur schließt.
+    function applyScoreReply(html, swapPanel) {
+      var tpl = document.createElement('template');
+      tpl.innerHTML = html;
+      var blocks = tpl.content.querySelectorAll('[hx-swap-oob]');
+      for (var i = 0; i < blocks.length; i++) {
+        var block = blocks[i];
+        var cur = document.getElementById(block.id);
+        if (!cur || !block.innerHTML) continue;
+        if (block.id === 'scorepanel') {
+          if (!swapPanel) continue;
+          // Panel-Element komplett ersetzen: der MutationObserver unten
+          // erkennt den Wechsel und zielt danach aufs erste freie Feld.
+          var fresh = document.createElement('div');
+          fresh.id = 'scorepanel';
+          fresh.innerHTML = block.innerHTML;
+          if (window.htmx && htmx.process) htmx.process(fresh);
+          cur.replaceWith(fresh);
+        } else {
+          cur.innerHTML = block.innerHTML;
+        }
+      }
+      updateEdgeHints();
+    }
+
+    function sendScore(form, swapPanel) {
+      var body = new URLSearchParams();
+      var inputs = form.querySelectorAll('input');
+      for (var i = 0; i < inputs.length; i++) {
+        if (inputs[i].name) body.set(inputs[i].name, inputs[i].value);
+      }
+      fetch('/score', {
+        method: 'POST',
+        headers: { 'HX-Request': 'true' },
+        body: body,
+      }).then(function (res) {
+        var redir = res.headers.get('HX-Redirect');
+        if (redir) { window.location = redir; return null; } // Session abgelaufen
+        if (!res.ok) return null;
+        return res.text();
+      }).then(function (html) {
+        if (html) applyScoreReply(html, swapPanel);
+      })['catch'](function () {});
+    }
+
+    function commitScoreField(inp, panel, form) {
+      // Leeres, nie gefülltes Feld: nichts zu löschen – nur weiterspringen.
+      if (inp.value === '' && !inp.classList.contains('filled')) {
+        focusField(nextFreeField(panel, inp));
+        return;
+      }
+      // Panel-Neubau nur bei strukturellem Wechsel: offizielle Summe, oder
+      // die Note, die alle Richter komplett macht (→ Summenzeile bzw.
+      // nächster Teilnehmer). Sonst bleiben Fokus und Tastatur im alten Panel.
+      var swapPanel = inp.name === 'total_override';
+      if (!swapPanel) {
+        swapPanel = true;
+        var fields = panel.querySelectorAll('.judges input[type=number]');
+        for (var i = 0; i < fields.length; i++) {
+          if (fields[i] !== inp && fields[i].value === '') {
+            swapPanel = false;
+            break;
+          }
+        }
+      }
+      if (!swapPanel) focusField(nextFreeField(panel, inp));
+      sendScore(form, swapPanel);
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.keyCode !== 13) return;
+      var inp = e.target;
+      if (!inp || !inp.matches ||
+          !inp.matches('#scorepanel input[type=number]')) return;
+      var panel = document.getElementById('scorepanel');
+      var form = inp.closest ? inp.closest('form') : null;
+      if (!panel || !form || !panel.contains(form)) return;
+      // Kein Formular-Submit: das würde auf iOS die Tastatur schließen.
+      e.preventDefault();
+      inp.dataset.busy = String(Date.now());
+      commitScoreField(inp, panel, form);
+    });
+
+    // Sicherheitsnetz: reicht ein iOS die Enter-Taste trotzdem als Submit
+    // durch (Sonderverhalten), wird die Formular-Abgabe gestoppt – im
+    // keydown-Pfad wurde die Note schon gesendet; das Zeitstempel-Fenster
+    // verhindert die Doppelsendung. Im capture-Durchlauf, damit das
+    // preventDefault vor HTMX' eigenem Submit-Handler am Formular ankommt
+    // (HTMX würde sonst trotzdem seinen XHR starten).
+    document.addEventListener('submit', function (e) {
+      var form = e.target;
+      if (!form.closest || !form.closest('#scorepanel')) return;
+      if (form.getAttribute('hx-post') !== '/score') return;
+      e.preventDefault(); // echtes Submit schließt auf iOS die Tastatur
+      var inp = document.activeElement;
+      if (!inp || !inp.matches ||
+          !inp.matches('#scorepanel input[type=number]')) return;
+      if (inp.dataset.busy &&
+          Date.now() - Number(inp.dataset.busy) < 500) return;
+      var panel = document.getElementById('scorepanel');
+      var f = inp.closest('form');
+      if (panel && f) commitScoreField(inp, panel, f);
+    }, true);
+  }
+
   // Tabellen, die breiter sind als der Container, bekommen einen dezenten
   // Kanten-Fade, damit das horizontale Wischen auf Touch auffindbar ist.
   // Klassen via JS, damit der Fade nur bei echtem Overflow erscheint.
