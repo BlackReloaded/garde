@@ -3,8 +3,12 @@
   <div class="rank-head">
     <h3>Platzierung</h3>
     <span class="count">{{len .Plain}} von {{.ActivePlain}} fertig bewertet</span>
-    <a class="pdf-link" href="/export/protocol?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}"
-       title="Ergebnisprotokoll dieser Disziplin als PDF-Wertungsbogen herunterladen">als PDF</a>
+    <span class="export-links">
+      <a href="/export/protocol?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}" target="_blank" rel="noopener"
+         title="Wertungsbogen dieser Disziplin als PDF (quer, mit CSV-Anhang)">Disziplin als PDF</a>
+      <a href="/export/protocol.csv?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}" target="_blank" rel="noopener"
+         title="Dieselben Werte als CSV-Datei">Disziplin als CSV</a>
+    </span>
   </div>
   {{if .Plain}}
   <div class="table-wrap">

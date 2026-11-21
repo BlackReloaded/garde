@@ -280,18 +280,35 @@ Alle Werte aktualisieren sich live mit jedem Poll (5 s) und nach jeder
 Score-Eingabe (HTMX OOB-Swap). In der Kopfzeile ist der verwendete
 `Ø Slot`-Schätzwert eingeblendet.
 
-## Ergebnis-Export als PDF (Wertungsheft)
+## Ergebnis-Export als PDF / CSV (Wertungsheft)
 
-Rechts in der Kopfzeile der Platzierungskarte sitzt der Link **„als PDF"**
-(`GET /export/protocol?s=…&t=…&d=…`, Selektoren wie auf der Seite). Er
-lädt den Wertungsbogen der gewählten Disziplin herunter: Querformat A4,
-alle komplett bewerteten Tänze **in Startreihenfolge** mit Startnummer,
-Name, Verein, den Einzelnoten aller Richter, Gesamtsumme und Platz –
-dazu oben Turnier/Disziplin, Stand-Zeit und die Zahl fertig bewerteter
-Tänze. Gestrichene Noten stehen in Klammern, eine offiziell genannte
-Summe ist mit `*` markiert, Sternchen-Tänze mit `(S)` vor dem Namen.
-Das geht ohne Anmeldung (reines Lese-Recht, wie die Live-Ansicht).
-Erzeugt wird das PDF im Binary selbst (`go-pdf/fpdf`, Standard-Schrift
+Rechts in den Kartenköpfen sitzen die Export-Links (`GET /export/…`,
+Selektoren wie auf der Seite). Alle vier Wege brauchen keine Anmeldung
+(reines Lese-Recht, wie die Live-Ansicht):
+
+| Link | Route | Inhalt |
+| --- | --- | --- |
+| Disziplin als PDF | `/export/protocol?s=&t=&d=` | Wertungsbogen der gewählten Disziplin |
+| Disziplin als CSV | `/export/protocol.csv?s=&t=&d=` | dieselben Werte als Datei |
+| Turnier als PDF | `/export/competition?s=&t=` | ein Blatt je Disziplin dieses Turniers |
+| Turnier als CSV | `/export/competition.csv?s=&t=` | dieselben Werte als Datei |
+
+Die PDFs sind Querformat A4 und zeigen alle komplett bewerteten Tänze **in
+Startreihenfolge** mit Startnummer, Name, Verein, den Einzelnoten aller
+Richter, Gesamtsumme und Platz; oben stehen Turnier/Disziplin, Stand-Zeit
+und die Zahl fertig bewerteter Tänze, unten auf jeder Seite Disziplin und
+Seitenzahl. Gestrichene Noten stehen in Klammern, eine offiziell genannte
+Summe ist mit `*` markiert, Sternchen-Tänze mit `(S)` vor dem Namen. Im
+Turnier-PDF fehlen Disziplinen ohne komplette Wertung (Hinweis auf dem
+ersten Blatt) – das spart Papier, solange noch bewertet wird.
+
+Jedes PDF hat dieselben Werte als CSV-Anhang eingebettet (`;` getrennt,
+UTF-8 mit BOM, Spalten
+`disziplin;startnr;name;verein;stern;R1…R7;gesamt;platz;anmerkung`), damit
+ein ausgedruckter Bogen nachträglich noch in eine Tabelle kann. Weil man am
+Handy an einen PDF-Anhang nicht herankommt, gibt es die CSV auch direkt.
+
+Erzeugt wird das alles im Binary selbst (`go-pdf/fpdf`, Standard-Schrift
 Helvetica/cp1252) – kein externer Dienst, kein Headless-Browser, offline
 funktionierend.
 

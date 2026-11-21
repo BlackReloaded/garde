@@ -3,6 +3,12 @@
   <div class="rank-head">
     <h3>Zeitplan &amp; Reihenfolge</h3>
     <span class="count">Zeigt die noch ausstehenden Tänze · Start-Zeiten aus der live gemessenen Taktung · laufende und fertige Werte stehen unter In Bewertung bzw. in der Rangliste</span>
+    <span class="export-links">
+      <a href="/export/competition?s={{.SessionID}}&amp;t={{.CompID}}" target="_blank" rel="noopener"
+         title="Wertungsbögen aller Disziplinen dieses Turniers als PDF (ein Blatt je Disziplin, mit CSV-Anhang)">Turnier als PDF</a>
+      <a href="/export/competition.csv?s={{.SessionID}}&amp;t={{.CompID}}" target="_blank" rel="noopener"
+         title="Alle Werte des Turniers als CSV-Datei">Turnier als CSV</a>
+    </span>
   </div>
   {{if .PlanSegs}}
   <div class="plan-discs" title="Ablauf: gemessene Zeiten, wo schon Noten geflossen sind; der Rest als Prognose aus Startzeit + Disziplin-Dauern + Blöcken">

@@ -517,16 +517,22 @@ td .total-val { font-size: 18px; font-weight: 800; }
 }
 .rank-head h3 { margin: 0; font-size: 18px; }
 .rank-head .count { font-size: 13px; color: var(--muted); }
-/* PDF-Export rechts in der Kopfzeile der Platzierungskarte. */
-.rank-head .pdf-link {
+/* Export-Links rechts in den Kartenköpfen (Platzierung, Zeitplan). */
+.rank-head .export-links {
   margin-left: auto;
+  display: inline-flex;
+  gap: 2px 12px;
+  flex-wrap: wrap;
   font-size: 12.5px;
+  white-space: nowrap;
+}
+.rank-head .export-links a {
   color: var(--muted);
   text-decoration: none;
-  padding: 6px 8px; /* Touch-Ziel auch ohne Hover groß genug */
+  padding: 7px 3px; /* Touch-Ziel auch ohne Hover groß genug */
 }
 @media (hover: hover) {
-  .rank-head .pdf-link:hover { text-decoration: underline; }
+  .rank-head .export-links a:hover { color: var(--ink); text-decoration: underline; }
 }
 /* Geplanter Disziplin-Fahrplan (Turnier-Start + eingeplante Blöcke). */
 .plan-discs {
