@@ -59,24 +59,26 @@ var funcs = template.FuncMap{
 	// liegt, sonst "start ≈ jetzt".
 	"startLabel": func(startEst *time.Time, now time.Time) string {
 		if startEst != nil && startEst.After(now.Add(time.Minute)) {
-			return "start ca. " + startEst.Format("15:04")
+			return "start ca. " + startEst.In(schedule.Zone).Format("15:04")
 		}
 		return "start ≈ jetzt"
 	},
 }
 
+// fmtHM/fmtHMS zeigen Zeiten immer in europäischer Zeit (Europe/Berlin) –
+// die Zeitwerte selbst dürfen in beliebiger Zone vorliegen (UTC im Container).
 func fmtHM(t *time.Time) string {
 	if t == nil {
 		return "–"
 	}
-	return t.Format("15:04")
+	return t.In(schedule.Zone).Format("15:04")
 }
 
 func fmtHMS(t *time.Time) string {
 	if t == nil {
 		return "–"
 	}
-	return t.Format("15:04:05")
+	return t.In(schedule.Zone).Format("15:04:05")
 }
 
 // fmtDur rendert Sekunden als "mm:ss" bzw. "h:mm:ss".
@@ -271,10 +273,10 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 			ids = append(ids, dd.ID)
 		}
 		if counts, err := a.store.CountActiveParticipants(ids); err == nil {
-			plan := schedule.PlanDisciplineStarts(comp.StartAtSec, now, allDiscs, counts, blocks)
+			plan := schedule.PlanDisciplineStarts(comp.StartAtSec, now, schedule.Zone, allDiscs, counts, blocks)
 			ld.PlanSegs = plan
 			if comp.StartAtSec > 0 {
-				start := schedule.PlanStartAt(comp.StartAtSec, now)
+				start := schedule.PlanStartAt(comp.StartAtSec, now, schedule.Zone)
 				ld.CompStart = &start
 			}
 			// Anker nur aus der aktuellen Disziplin (nicht aus einem

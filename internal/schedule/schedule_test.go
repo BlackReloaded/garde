@@ -19,7 +19,7 @@ func mkScores(n int, start time.Time, step time.Duration, spread time.Duration) 
 func TestComputeNoObservations(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
-	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.Local)
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
 	ps := []model.ParticipantInfo{
 		{ID: 1, StartNr: "1", Name: "A"},
 		{ID: 2, StartNr: "2", Name: "B"},
@@ -56,7 +56,7 @@ func TestComputeNoObservations(t *testing.T) {
 func TestComputeWithObservations(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
-	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.Local)
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
 
 	// P1: 7 Noten zwischen 13:10:00 und 13:20:00 (Punktezeit 10 min)
 	// P2: 7 Noten zwischen 13:25:00 und 13:35:00 (Punktezeit 10 min)
@@ -104,7 +104,7 @@ func TestComputeWithObservations(t *testing.T) {
 func TestComputeFinished(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
-	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.Local)
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
 	p1 := mkScores(7, now.Add(-20*time.Minute), 0, 60*time.Second)
 	p2 := mkScores(7, now.Add(-8*time.Minute), 0, 60*time.Second)
 	ps := []model.ParticipantInfo{
@@ -127,7 +127,7 @@ func TestComputeFinished(t *testing.T) {
 func TestComputeGapStartsEarly(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
-	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.Local)
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
 	// P1 fertig: 7 Noten von 13:10 bis 13:20 (Punktezeit 600 s).
 	// P2: erst 2 Noten, erste um 13:25 -> Gap = 5 min = 300 s.
 	// Der Slot ist also schon "von Bewertung zur nächsten Bewertung"
@@ -163,7 +163,7 @@ func TestComputeGapStartsEarly(t *testing.T) {
 func TestComputeBreakIgnored(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
-	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.Local)
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
 	// P1 fertig: letzte Note um 13:06.
 	// P2: erste Note erst um 14:00 (54 min später = Pause) ->
 	// das Gap wird verworfen, es greift der Default (300 s).
@@ -186,7 +186,7 @@ func TestComputeBreakIgnored(t *testing.T) {
 func TestComputeAnchorAtPlannedStart(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
-	now := time.Date(2026, 10, 27, 8, 0, 0, 0, time.Local)
+	now := time.Date(2026, 10, 27, 8, 0, 0, 0, Zone)
 	anchor := now.Add(1 * time.Hour)
 	set.AnchorAt = &anchor
 	ps := []model.ParticipantInfo{
@@ -224,7 +224,7 @@ func TestComputeAnchorAtPlannedStart(t *testing.T) {
 func TestComputeAnchorPastIgnored(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
-	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.Local)
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
 	past := now.Add(-2 * time.Hour)
 	set.AnchorAt = &past
 	ps := []model.ParticipantInfo{
@@ -241,7 +241,7 @@ func TestComputeAnchorPastIgnored(t *testing.T) {
 func TestComputeAnchorWithScoresIgnored(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
-	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.Local)
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
 	future := now.Add(3 * time.Hour)
 	set.AnchorAt = &future
 	// P1 fertig (7 Noten), P2: 2 Noten seit kurz -> es existieren Noten,
@@ -265,7 +265,7 @@ func TestComputeAnchorWithScoresIgnored(t *testing.T) {
 }
 
 func TestPlanDisciplineStarts(t *testing.T) {
-	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local)
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, Zone)
 	discs := []model.Discipline{
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 		{ID: 2, Name: "Leer", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
@@ -273,20 +273,20 @@ func TestPlanDisciplineStarts(t *testing.T) {
 	}
 	counts := map[int64]int{1: 2, 3: 3} // Disziplin 2 leer
 	// Turnier-Start 09:00, keine Pause, Slot-Default je Disziplin 300 s.
-	plan := PlanDisciplineStarts(9*3600, now, discs, counts, nil)
+	plan := PlanDisciplineStarts(9*3600, now, Zone, discs, counts, nil)
 	if len(plan) != 2 {
 		t.Fatalf("Plan-Länge = %d, want 2 (leere Disziplin übersprungen)", len(plan))
 	}
-	want1s := time.Date(2026, 3, 15, 9, 0, 0, 0, time.Local)
-	want1e := time.Date(2026, 3, 15, 9, 10, 0, 0, time.Local)
+	want1s := time.Date(2026, 3, 15, 9, 0, 0, 0, Zone)
+	want1e := time.Date(2026, 3, 15, 9, 10, 0, 0, Zone)
 	// 2 Tänzer × 5 min = 10 min.
 	if !plan[0].StartEst.Equal(want1s) || !plan[0].EndEst.Equal(want1e) {
 		t.Fatalf("Plan[0] = %v–%v, want %v–%v",
 			plan[0].StartEst, plan[0].EndEst, want1s, want1e)
 	}
 	// direkt danach (ohne Pause): Paare 09:10; 3 Tänzer × 5 min = 15 min -> 09:25.
-	want3s := time.Date(2026, 3, 15, 9, 10, 0, 0, time.Local)
-	want3e := time.Date(2026, 3, 15, 9, 25, 0, 0, time.Local)
+	want3s := time.Date(2026, 3, 15, 9, 10, 0, 0, Zone)
+	want3e := time.Date(2026, 3, 15, 9, 25, 0, 0, Zone)
 	if !plan[1].StartEst.Equal(want3s) || !plan[1].EndEst.Equal(want3e) {
 		t.Fatalf("Plan[1] = %v–%v, want %v–%v",
 			plan[1].StartEst, plan[1].EndEst, want3s, want3e)
@@ -297,28 +297,28 @@ func TestPlanDisciplineStarts(t *testing.T) {
 }
 
 func TestPlanDisciplineNoFixedGaps(t *testing.T) {
-	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local)
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, Zone)
 	discs := []model.Discipline{
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 		{ID: 2, Name: "Paare", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
 	counts := map[int64]int{1: 1, 2: 1}
-	plan := PlanDisciplineStarts(9*3600, now, discs, counts, nil)
+	plan := PlanDisciplineStarts(9*3600, now, Zone, discs, counts, nil)
 	// Garde 09:00–09:05, direkt danach Paare 09:05–09:10 – ohne feste
 	// Pause zwischen den Disziplinen.
-	wantEnd := time.Date(2026, 3, 15, 9, 10, 0, 0, time.Local)
+	wantEnd := time.Date(2026, 3, 15, 9, 10, 0, 0, Zone)
 	if !plan[1].EndEst.Equal(wantEnd) {
 		t.Fatalf("Plan[1].EndEst = %v, want %v", plan[1].EndEst, wantEnd)
 	}
 }
 
 func TestPlanDisciplineNoStart(t *testing.T) {
-	now := time.Date(2026, 3, 15, 12, 0, 0, 0, time.Local)
+	now := time.Date(2026, 3, 15, 12, 0, 0, 0, Zone)
 	discs := []model.Discipline{
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
 	counts := map[int64]int{1: 1}
-	if plan := PlanDisciplineStarts(0, now, discs, counts, nil); plan != nil {
+	if plan := PlanDisciplineStarts(0, now, Zone, discs, counts, nil); plan != nil {
 		t.Fatalf("Plan = %v, want nil (keine Startzeit gesetzt)", plan)
 	}
 }

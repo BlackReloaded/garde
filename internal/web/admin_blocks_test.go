@@ -140,11 +140,11 @@ func TestLiveShowsBlocksInPlan(t *testing.T) {
 	// Startzeit 3 h in der Zukunft (auf Minute): Garde (1 Tänzer =
 	// 5 min), danach Mittagspause (30 min, Position 1), keine Pause
 	// zwischendurch. Der komplette Plan liegt garantiert in der Zukunft.
-	now := time.Now()
+	now := time.Now().In(schedule.Zone)
 	start := now.Add(3 * time.Hour)
 	start = time.Date(start.Year(), start.Month(), start.Day(),
-		start.Hour(), start.Minute(), 0, 0, time.Local)
-	midnight := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.Local)
+		start.Hour(), start.Minute(), 0, 0, schedule.Zone)
+	midnight := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, schedule.Zone)
 	sec := int(start.Sub(midnight) / time.Second)
 	if err := st.UpdateCompetitionStart(cid, sec); err != nil {
 		t.Fatal(err)
@@ -200,10 +200,10 @@ func TestLiveLaterDisciplineAnchorsAndNextBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	now := time.Now()
+	now := time.Now().In(schedule.Zone)
 	start := time.Date(now.Year(), now.Month(), now.Day(),
-		now.Hour()+3, now.Minute(), 0, 0, time.Local)
-	midnight := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.Local)
+		now.Hour()+3, now.Minute(), 0, 0, schedule.Zone)
+	midnight := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, schedule.Zone)
 	sec := int(start.Sub(midnight) / time.Second)
 	if err := st.UpdateCompetitionStart(cid, sec); err != nil {
 		t.Fatal(err)

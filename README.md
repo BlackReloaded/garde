@@ -75,6 +75,9 @@ docker run -d --name turnier -p 8080:8080 \
 ```
 
 - SQLite-Datei liegt in `/data/turnier.db` – Volume `turnier-data` mounten.
+- Zeitanzeigen (Turnier-Start, Zeitplan, Prognosen) sind immer
+  **Europe/Berlin** – die Zone steckt im Binary (`time/tzdata`), der
+  Container darf in UTC laufen.
 - Alle anderen Flags wie oben (`-addr`, `-db`, OIDC/OAuth2, …).
 - CI pusht bei jedem Push nach `main` bzw. Tag (`v*`) ein Multi-Arch-Image
   (amd64/arm64) nach **GHCR**: `ghcr.io/<owner>/turnier`

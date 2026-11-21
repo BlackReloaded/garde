@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"turnier/internal/model"
+	"turnier/internal/schedule"
 )
 
 // Die Zeitprognose muss an die geplante Turnier-Startzeit anknüpfen und
@@ -29,7 +30,9 @@ func TestLiveAnchorsToPlannedStart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	now := time.Now()
+	// Start in Anzeigetimezone bauen: Die App deutet Sekunden-seit-Mitternacht
+	// als Berliner Wanduhrzeit, unabhängig von der Rechnerzone.
+	now := time.Now().In(schedule.Zone)
 	start := now.Add(2 * time.Hour)
 	sec := int(start.Hour())*3600 + int(start.Minute())*60 + int(start.Second())
 	if err := st.UpdateCompetitionStart(cid, sec); err != nil {
@@ -70,7 +73,7 @@ func TestLiveScheduleShowsPlannedStart(t *testing.T) {
 	discs, _ := st.ListDisciplines(cid)
 	did := discs[0].ID
 
-	now := time.Now()
+	now := time.Now().In(schedule.Zone)
 	start := now.Add(90 * time.Minute)
 	sec := int(start.Hour())*3600 + int(start.Minute())*60 + int(start.Second())
 	if err := st.UpdateCompetitionStart(cid, sec); err != nil {

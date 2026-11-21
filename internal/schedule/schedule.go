@@ -16,9 +16,22 @@ package schedule
 
 import (
 	"time"
+	_ "time/tzdata" // Zone-Datenbank im Binary – Berlin geht auch ohne tzdata im System
 
 	"turnier/internal/model"
 )
+
+// Zone ist die Anzeigetimezone für alle berechneten und angezeigten
+// Zeiten: Turnier-Startzeiten werden in deutscher Wanduhrzeit eingegeben,
+// die Anzeigen in der Live-Ansicht sind ebenso gemeint – unabhängig davon,
+// ob der Rechner (z. B. Docker-Container) in UTC läuft.
+var Zone = func() *time.Location {
+	loc, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		return time.Local
+	}
+	return loc
+}()
 
 // gapCapSec: größter plausibler Abstand "von Bewertung zur nächsten
 // Bewertung" (40 min). Größere Abstände gelten als Pause und fließen
@@ -250,13 +263,15 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 }
 
 // PlanStartAt rechnet den konkreten Zeitpunkt der Turnier-Startzeit
-// (Sekunden seit Mitternacht) relativ zu now: normal die heutige
-// Ankunft der Uhrzeit. Ist die heutige Ankunft bereits vorbei, die
-// nächste (morgen) aber innerhalb von startRolloverWindow, ist ein
-// Start über Mitternacht gemeint (jetzt 23:00, Start 00:30 → morgen
-// 00:30) – dann wird der Folgetag genommen.
-func PlanStartAt(startAtSec int, now time.Time) time.Time {
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+// (Sekunden seit Mitternacht in der Anzeigzone loc) relativ zu now:
+// normal die heutige Ankunft der Uhrzeit – gemessen am Tag, wie er in loc
+// läuft (der Container-Rechner darf ruhig in UTC laufen). Ist die heutige
+// Ankunft bereits vorbei, die nächste (morgen) aber innerhalb von
+// startRolloverWindow, ist ein Start über Mitternacht gemeint (jetzt 23:00,
+// Start 00:30 → morgen 00:30) – dann wird der Folgetag genommen.
+func PlanStartAt(startAtSec int, now time.Time, loc *time.Location) time.Time {
+	nl := now.In(loc)
+	midnight := time.Date(nl.Year(), nl.Month(), nl.Day(), 0, 0, 0, 0, loc)
 	t := midnight.Add(time.Duration(startAtSec) * time.Second)
 	if t.Before(now) && t.Add(24*time.Hour).Sub(now) <= startRolloverWindow {
 		t = t.Add(24 * time.Hour)
@@ -282,21 +297,22 @@ type PlanSegment struct {
 }
 
 // PlanDisciplineStarts rechnet den geplanten Ablauf eines Turniers:
-// Turnier-Startzeit (Sekunden seit Mitternacht, s. PlanStartAt) + Dauer
-// der Disziplinen (nicht zurückgezogene Teilnehmer × Slot-Default) +
-// eingeplante Blöcke an ihrer Position (Mittagspause, Siegerehrung, …).
+// Turnier-Startzeit (Sekunden seit Mitternacht in der Anzeigzone loc,
+// s. PlanStartAt) + Dauer der Disziplinen (nicht zurückgezogene
+// Teilnehmer × Slot-Default) + eingeplante Blöcke an ihrer Position
+// (Mittagspause, Siegerehrung, …).
 // Zwischen den Abschnitten gibt es keine feste Pause – Disziplinen und
 // Blöcke laufen direkt aneinander. Ohne gesetzte Startzeit
 // (startAtSec <= 0) gibt es keine Plan-Basis (nil); ohne Disziplinen UND
 // ohne Blöcke ebenso. Leere Disziplinen werden übersprungen; Blöcke an
 // ihrer Position erscheinen trotzdem.
-func PlanDisciplineStarts(startAtSec int, now time.Time,
+func PlanDisciplineStarts(startAtSec int, now time.Time, loc *time.Location,
 	discs []model.Discipline, activeParts map[int64]int,
 	blocks []model.PlannedBlock) []PlanSegment {
 	if startAtSec <= 0 || (len(discs) == 0 && len(blocks) == 0) {
 		return nil
 	}
-	t := PlanStartAt(startAtSec, now)
+	t := PlanStartAt(startAtSec, now, loc)
 	out := make([]PlanSegment, 0, len(discs)+len(blocks))
 	addSeg := func(seg PlanSegment, dur time.Duration) {
 		s := t
