@@ -170,21 +170,30 @@
       }).then(function (html) {
         if (!html) return;
         applyScoreReply(html, swapPanel);
-        // Grüne "filled"-Markierung: Am Desktop bringt sie der Server mit
-        // dem Panel-Neubau, auf Touch bleibt das Feld stehen – hier also
-        // erst NACH erfolgreicher Antwort selbst setzen (löschen = leeren).
-        // Bei getauschtem Panel kommt sie vom Server – nicht nachtragen.
-        if (!swapPanel && mark && document.contains(mark)) {
-          if (mark.value === '') mark.classList.remove('filled');
-          else mark.classList.add('filled');
+        if (mark && document.contains(mark)) {
+          // Referenzwert für den "nichts geändert"-Test im focusout-Pfad
+          // (der Zeitstempel der Note steuert die ETA – nicht unnötig
+          // neu setzen) und aufgeräumter Draft.
+          mark.dataset.sent = mark.value;
+          var dk = judgeKey(mark);
+          if (dk !== null) delete drafts[dk];
+          // Grüne "filled"-Markierung: Am Desktop bringt sie der Server mit
+          // dem Panel-Neubau, auf Touch bleibt das Feld stehen – hier also
+          // erst NACH erfolgreicher Antwort selbst setzen (löschen = leeren).
+          // Bei getauschtem Panel kommt sie vom Server – nicht nachtragen.
+          if (!swapPanel) {
+            if (mark.value === '') mark.classList.remove('filled');
+            else mark.classList.add('filled');
+          }
         }
       })['catch'](function () {});
     }
 
-    function commitScoreField(inp, panel, form) {
+    function commitScoreField(inp, panel, form, moveFocus) {
+      if (moveFocus === undefined) moveFocus = true;
       // Leeres, nie gefülltes Feld: nichts zu löschen – nur weiterspringen.
       if (inp.value === '' && !inp.classList.contains('filled')) {
-        focusField(nextFreeField(panel, inp));
+        if (moveFocus) focusField(nextFreeField(panel, inp));
         return;
       }
       // Panel-Neubau nur bei strukturellem Wechsel: offizielle Summe, oder
@@ -201,7 +210,7 @@
           }
         }
       }
-      if (!swapPanel) focusField(nextFreeField(panel, inp));
+      if (moveFocus && !swapPanel) focusField(nextFreeField(panel, inp));
       sendScore(form, swapPanel, inp);
     }
 
@@ -239,6 +248,30 @@
       var f = inp.closest('form');
       if (panel && f) commitScoreField(inp, panel, f);
     }, true);
+
+    // Geräte-Realität: Auf der iPhone-Zahlentastatur gibt es GAR KEINE
+    // Enter-Taste, und die „Weiter"-Taste über der Tastatur verschiebt nur
+    // den Fokus (kein Keydown, kein Submit) – über keydown/submit kommt auf
+    // dem iPhone also nie etwas an. Deshalb gilt auf Touch zusätzlich:
+    // Verlassen des Feldes mit geändertem Wert = Speichern (wie Enter am
+    // Desktop). Deckt „Weiter", Antippen des nächsten Feldes und
+    // Tastatur-Schließen ab. Der busy-Fenster-Test verhindert die
+    // Doppelsendung, wenn vorhin schon per Enter/Submit kommitiert wurde.
+    document.addEventListener('focusout', function (e) {
+      var inp = e.target;
+      if (!inp || !inp.matches ||
+          !inp.matches('#scorepanel input[type=number]')) return;
+      if (inp.dataset.busy &&
+          Date.now() - Number(inp.dataset.busy) < 600) return;
+      var base = inp.dataset.sent;
+      if (base === undefined) base = inp.defaultValue;
+      if (inp.value === base) return; // nichts geändert – nichts schicken
+      var panel = document.getElementById('scorepanel');
+      var form = inp.closest ? inp.closest('form') : null;
+      if (!panel || !form || !panel.contains(form)) return;
+      inp.dataset.busy = String(Date.now());
+      commitScoreField(inp, panel, form, false);
+    });
   }
 
   // Tabellen, die breiter sind als der Container, bekommen einen dezenten

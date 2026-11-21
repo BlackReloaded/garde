@@ -22,10 +22,12 @@
     <b>{{star .Starred}} {{.StartNr}} · {{.Name}}</b>
     {{if .Verein}} – {{.Verein}}{{end}}
   </div>
-  <!-- enterkeyhint="next": auf iPad/iPhone otherwise Beschriftung „Fertig“
-       und die Taste schließt die Zahlen-Tastatur. „Weiter“ lässt sie offen;
-       das Wechselspringen und Speichern erledigt das Skript in base.html
-       (nur Touch – auf dem Desktop ist das hx-post der Formulare der Weg). -->
+  <!-- Achtung iPhone: Die Zahlentastatur hat keine Enter-Taste, und die
+       „Weiter"-Taste über der Tastatur (enterkeyhint="next") verschiebt nur
+       den Fokus. Speichern passiert auf Touch beim Verlassen des Feldes
+       (focusout-Handler in base.html); Enter/Submit bleibt als Weg für
+       Hardware-Tastaturen. Auf dem Desktop ist das hx-post der Formulare
+       der Weg. -->
   <div class="judges">
     {{range $j := seq $.NumJ}}
     <div class="judge-cell">
@@ -62,9 +64,10 @@
   </div>
   {{end}}
   <div class="panel-hint">
-    Wert 0–100 eingeben und Enter – Tastatur bleibt offen, das nächste freie
-    Feld wird fokussiert (auf dem iPad heißt die Enter-Taste „Weiter“).
-    Feld leeren + Enter löscht die Note. Auswahl oben: auch bereits bewertete
+    Wert 0–100 eingeben – gespeichert wird mit Enter oder sobald du das Feld
+    verlässt (nächstes Feld antippen oder „Weiter“); die Tastatur bleibt
+    offen und springt aufs nächste freie Feld. Feld leeren und verlassen
+    löscht die Note. Auswahl oben: auch bereits bewertete
     Teilnehmer korrigierbar. Bei 7/7: passt die offiziell genannte Gesamtsumme
     nicht zur berechneten, einfach unten eintragen (Enter); leeres Feld +
     Enter setzt die Überschreibung zurück.

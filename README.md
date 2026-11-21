@@ -343,9 +343,12 @@ Admin-Link ist nur für Admins sichtbar; alle geschützten Routen leiten auf
 können auch bereits bewertete Tänzer zum Korrigieren ausgewählt werden
 (Auswahl bleibt bis zum Abschluss – dann automatisch zurück zum aktuellen).
 Enter im Feld speichert und springt ins nächste freie Feld (Tastatur bleibt
-offen); leeres Feld + Enter löscht die Note. Auf iPad/iPhone wird Enter ohne
-Formular-Submit verarbeitet – Submit würde dort die Bildschirmtastatur
-schließen (Skript in `base.html`, Zweig `coarse`).
+offen); leeres Feld + Enter löscht die Note. Auf iPhone/iPad ohne
+Hardware-Tastatur hat die Zahlentastatur gar keinen Enter – dort speichert
+bereits das Verlassen des Feldes (nächstes Feld antippen oder „Weiter“ über
+der Tastatur): Zweig `coarse` + `focusout` in `base.html`. Ein Doppel-Submit
+verhindert die pro Feld gemerkte Serverwert-Referenz (der Noten-Zeitstempel
+steuert die ETA und soll nicht unnötig aktualisiert werden).
 
 ## Entwicklung
 
