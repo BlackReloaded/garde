@@ -339,20 +339,36 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	ld.Finished = ld.Sched.Finished
 	ld.SlotLabel = fmtDur(ld.Sched.SlotSec)
 
-	// Zeitplan-Tabelle: ALLE Teilnehmer (auch zurückgezogene) in
-	// Startreihenfolge (= Listenreihenfolge, s. oben). Zurückgezogene
-	// erscheinen gestrichen, werden aber von der Zeitprognose übersprungen
-	// (kein Slot, keine Zeit) – daher per ID mit den Prognose-Einträgen
-	// (nur aktive) matchen.
+	// Zeitplan-Tabelle: nur die noch ausstehenden Tänze, in
+	// Startreihenfolge (= Listenreihenfolge, s. oben). Was schon Noten
+	// hat, ist bereits in der "In Bewertung"-Karte (1–6 Noten) bzw. in
+	// der Rangliste (7/7) – das muss hier nicht doppelt stehen.
+	// Zurückgezogene erscheinen gestrichen, solange die Liste bei ihnen
+	// steht; sind sie gelaufen (Position vor dem aktuellen Tänzer), fallen
+	// auch sie weg. Die Zeitprognose überspringt sie ohnehin (kein Slot,
+	// keine Zeit) – daher per ID mit den Prognose-Einträgen matchen.
 	prognose := make(map[int64]schedule.ResultEntry, len(schedResult.Entries))
 	for _, e := range schedResult.Entries {
 		prognose[e.ID] = e
 	}
+	// Position des aktuellen Tanzers in der Liste (=-1 wenn nichts mehr
+	// läuft): maßgeblich dafür, welche zurückgezogenen Einträge noch
+	// "vorn" liegen.
+	curPos := -1
+	if c := schedResult.Current; c != nil {
+		for i := range parts {
+			if parts[i].ID == c.ID {
+				curPos = i
+				break
+			}
+		}
+	}
 	rows := make([]SchedRow, 0, len(parts))
-	for _, p := range parts {
-		if e, ok := prognose[p.ID]; ok {
-			rows = append(rows, SchedRow{ResultEntry: e})
-		} else {
+	for i, p := range parts {
+		if p.Withdrawn {
+			if curPos < 0 || i < curPos {
+				continue
+			}
 			rows = append(rows, SchedRow{
 				ResultEntry: schedule.ResultEntry{
 					ID: p.ID, StartNr: p.StartNr, Name: p.Name,
@@ -361,7 +377,13 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 				},
 				Withdrawn: true,
 			})
+			continue
 		}
+		e, ok := prognose[p.ID]
+		if !ok || e.NumScores > 0 {
+			continue // schon in Bewertung oder fertig
+		}
+		rows = append(rows, SchedRow{ResultEntry: e})
 	}
 	ld.SchedRows = rows
 
@@ -418,7 +440,9 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 			} else {
 				plain = append(plain, f)
 			}
-		} else {
+		} else if len(p.Scores) > 0 {
+			// Nur echte Teildwertungen (1–6 Noten) sind "in Bewertung";
+			// Tänzer ohne jede Note stehen (noch) im Zeitplan.
 			ld.Pending = append(ld.Pending, row)
 		}
 	}

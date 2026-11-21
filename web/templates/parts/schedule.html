@@ -2,7 +2,7 @@
 <div class="card">
   <div class="rank-head">
     <h3>Zeitplan &amp; Reihenfolge</h3>
-    <span class="count">Start-Zeiten aus der live gemessenen Taktung · gestrichene Tänze werden übersprungen</span>
+    <span class="count">Zeigt die noch ausstehenden Tänze · Start-Zeiten aus der live gemessenen Taktung · laufende und fertige Werte stehen unter In Bewertung bzw. in der Rangliste</span>
   </div>
   {{if .PlanSegs}}
   <div class="plan-discs" title="Geplanter Ablauf (Turnier-Start + Disziplin-Dauern + eingeplante Blöcke)">
@@ -52,7 +52,7 @@
     · Ø Slot <b>{{.SlotLabel}}</b>
   </div>
   {{else}}
-  <p class="panel-hint">Keine Teilnehmer in dieser Disziplin.</p>
+  <p class="panel-hint">{{if .Parts}}Keine Tänze mehr voraus · fertige Werte in der Rangliste.{{else}}Keine Teilnehmer in dieser Disziplin.{{end}}</p>
   {{end}}
 </div>
 {{if .Pending}}

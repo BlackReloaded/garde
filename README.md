@@ -217,8 +217,10 @@ automatischen Seed**. Auslosungslisten werden manuell per CSV-Import geladen
 (Admin → CSV Import, Format siehe unten).
 Durchgestrichene PDF-Einträge (Zugänge) werden als `withdrawn` importiert und
 im Admin-Bereich per Checkbox umschaltbar. In der Live-Ansicht erscheinen sie
-im Zeitplan **gestrichen** (Badge „gestrichen“, ohne Zeit) und werden bei der
-Zeitprognose **übersprungen** – kein Slot, keine ETA, nicht als Nächstes.
+im Zeitplan **gestrichen** (Badge „gestrichen“, ohne Zeit), solange die Liste
+bei ihnen steht, und werden bei der Zeitprognose **übersprungen** – kein Slot,
+keine ETA, nicht als Nächstes. Sind sie gelaufen, fallen sie aus der Liste
+heraus (der Zeitplan zeigt nur die noch ausstehenden Tänze, siehe unten).
 
 ## Wertungsregeln (implementiert)
 
@@ -249,6 +251,13 @@ aus den Zeitstempeln der eingegebenen Noten abgeleitet:
 - **Folgende Tänzer k:** `Start_k = Ende_{k−1}`, `Ende_k = Start_k + Slot`
   (nachfolgende Slots starten, sobald der vorherige fertig ist).
 - **Block-Ende:** Ende des letzten Tänzers.
+
+**Die Zeitplan-Tabelle zeigt nur die noch ausstehenden Tänze:** Ein Tanz
+fliegt raus, sobald die erste Note eingetragen ist – dann steht er im Bereich
+„In Bewertung" (bzw. mit 7/7 in der Rangliste) und muss nicht zusätzlich
+weiterhin als Zeitplan-Zeile mitlaufen. Gleiches gilt für zurückgezogene
+Tänzer, sobald die Liste über sie hinweg ist. Sind alle Tänze gelaufen, zeigt
+die Karte nur noch den Hinweis „Keine Tänze mehr voraus".
 
 **Geplante Startzeit (pro Turnier, Admin → „Turniere"):** Man kann je
 Turnier eine **Turnier-Startzeit** (Uhrzeit, leer = nicht gesetzt)
