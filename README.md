@@ -52,8 +52,12 @@ Beispiel mit einem **OIDC-Provider** (Keycloak, Google, …):
   -admins "orga1@verein.de,orga2@verein.de"
 ```
 
-- `-addr` (Default `:8080`): HTTP-Adresse
+- `-addr` (Default `:8080`): HTTP-Adresse (mit `-tls-domain`: nur ACME + Redirect)
 - `-db` (Default `turnier.db`): Pfad zur SQLite-Datei
+- `-tls-domain` (Default: leer): öffentlicher Hostname → HTTPS mit
+  automatischen Let's-Encrypt-Zertifikaten (siehe [HTTPS-Betrieb](#https-betrieb))
+- `-https-addr` (Default `:8443`): HTTPS-Bind-Adresse (mit `-tls-domain`)
+- `-tls-cache` (Default `acme-cache`): Cert-Cache-Verzeichnis (persistieren)
 
 ### Docker
 
@@ -75,6 +79,46 @@ docker run -d --name turnier -p 8080:8080 \
 - CI pusht bei jedem Push nach `main` bzw. Tag (`v*`) ein Multi-Arch-Image
   (amd64/arm64) nach **GHCR**: `ghcr.io/<owner>/turnier`
   (Tags: `latest` + `sha-<hash>`; bei Version-Tags zusätzlich `<tag>`).
+
+### HTTPS-Betrieb
+
+Mit `-tls-domain` terminiert die App TLS **selbst** – kein nginx/Traefik
+davor nötig (`golang.org/x/crypto/acme/autocert`). Das Zertifikat wird beim
+ersten HTTPS-Kontakt bei Let's Encrypt geholt und automatisch erneuert
+(~2/3 der Laufzeit); der Cache liegt in `-tls-cache` (Docker: im
+`turnier-data`-Volume, überlebt also den Container-Neubau). Der
+HTTP-Listener (`-addr`) beantwortet ACME-Challenges (HTTP-01) und leitet den
+Rest auf HTTPS um; auf `-https-addr` läuft die App über TLS (+ TLS-ALPN-01).
+
+Voraussetzungen:
+
+- **Öffentlicher DNS-Name** – Let's Encrypt signiert keine nackten
+  IP-Adressen. IPv6-only reicht: ein AAAA-Record auf die Adresse genügt,
+  die Challenges holt LE über IPv6 ab.
+- Zugriffe laufen über `https://<domain>` (HostWhitelist – direkte
+  IP-Zugriffe scheitern im TLS-Handshake). Beim Issuance/Renewal (~alle
+  60 Tage) muss Internet bestehen; ohne Internet **und** ohne Cache gibt es
+  kein Zertifikat.
+- Docker: Ports `80:8080` (ACME/Redirect) + `443:8443` (App) mappen; die
+  App bindet auf unprivilegierten Ports (nonroot-User im Image).
+
+Beispiel (öffentlicher Betrieb, HTTPS-Ports direkt gemappt):
+
+```sh
+./garde \
+  -tls-domain turnier.verein.de \
+  -addr :80 -https-addr :443 \
+  -oauth2-base-url https://EXAMPLE \
+  -oidc-client-id garde \
+  -oidc-client-secret <geheim> \
+  -oidc-redirect-url https://turnier.verein.de/auth/callback
+```
+
+Die Redirect-URL in der mailcow-UI als `https://…/auth/callback` registrieren
+(muss exakt passen); bei `https`-Callback setzt garde den `Secure`-Flag der
+Session-Cookies automatisch. Fürs Turnier-LAN ohne DNS/Internet:
+`-tls-domain` leer lassen – dann läuft die App wie gehabt auf plain HTTP
+(gecachte Zertifikate laufen offline bis zum Ablauf weiter).
 
 ## Login & Rechte
 

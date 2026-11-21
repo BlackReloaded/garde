@@ -1,0 +1,93 @@
+# Beispiel für turnier als Docker-Compose-Stack.
+#
+# Dies ist eine Vorlage mit PLATZHALTERN – vor dem Start anpassen
+# (Provider-URL, Client-ID, Admin-Mails) und das Secret setzen, z. B. per
+# .env-Datei daneben:
+#
+#   TURNIER_OIDC_CLIENT_SECRET=<geheim>
+#
+# Start:  docker compose -f docker-compose.example.yml up -d
+#
+# Genau EIN Login-Provider ist erlaubt. Hier der generische OAuth2-Modus
+# über -oauth2-base-url (z. B. mailcow, Endpoints /oauth/authorize|token|
+# profile). Für echtes OIDC stattdessen -oidc-issuer setzen und
+# -oauth2-base-url weglassen.
+
+services:
+  turnier:
+    # Entweder lokal aus dem Dockerfile bauen …
+    build: .
+    # … oder das von der CI nach GHCR gepushte Image verwenden:
+    # image: ghcr.io/<owner>/turnier:latest
+    container_name: turnier
+    ports:
+      - "8080:8080"
+    environment:
+      # Secret lieber als Env-Variable: der Default des Flags
+      # -oidc-client-secret liest TURNIER_OIDC_CLIENT_SECRET, so taucht es
+      # NICHT in der Prozessliste auf. Ohne Wert bricht Compose ab (?-Hint).
+      TURNIER_OIDC_CLIENT_SECRET: ${TURNIER_OIDC_CLIENT_SECRET:?TURNIER_OIDC_CLIENT_SECRET setzen, z. B. in einer .env-Datei}
+    volumes:
+      # SQLite-Datenbank liegt in /data → als Volume, damit persistent.
+      # Alternativ Bind-Mount in ein lokales Verzeichnis: - ./data:/data
+      - turnier-data:/data
+    command:
+      - -db
+      - /data/turnier.db
+      # Login-Provider (generisches OAuth2; nicht zusammen mit -oidc-issuer):
+      - -oauth2-base-url
+      - https://mail.kohlbau.de
+      - -oidc-client-id
+      - turnier
+      # -oidc-client-secret wird NICHT hier übergeben, sondern über die
+      #   Env-Variable TURNIER_OIDC_CLIENT_SECRET (s. environment). Wer es
+      #   doch als Argument will, fügt es hier ein – dann ist es in der
+      #   Prozessliste sichtbar.
+      # Optional, v. a. erster Start: Komma-Liste E-Mail-Adressen, die als
+      # admin in die DB übernommen werden (idempotent).
+      - -admins
+      - orga1@verein.de,orga2@verein.de
+      # Muss exakt so im Provider registriert sein (hier Default zur Klarheit):
+      - -oidc-redirect-url
+      - http://localhost:8080/auth/callback
+
+  # Optional die HTTPS-Variante (TLS terminiert turnier selbst – autocert mit
+  # Let's Encrypt, KEIN nginx/Proxy davor nötig). Nicht gleichzeitig mit dem
+  # turnier-Dienst starten (beide würden dasselbe DB-Volume mounten), deshalb
+  # über ein Profil:
+  #   docker compose -f docker-compose.example.yml --profile tls up -d
+  # Voraussetzungen: öffentlicher DNS-Name (A- oder AAAA-Record) zeigt auf
+  # den Host, Ports 80/443 hereingelassen; beim Renewal (~alle 60 Tage) muss
+  # Internet bestehen. Cert-Cache liegt im turnier-data-Volume (persistent).
+  #
+  # turnier-tls:
+  #   build: .
+  #   profiles: ["tls"]
+  #   container_name: turnier-tls
+  #   ports:
+  #     - "80:8080"    # HTTP: ACME-Challenges + Redirect
+  #     - "443:8443"   # HTTPS: App (+ TLS-ALPN)
+  #   environment:
+  #     TURNIER_OIDC_CLIENT_SECRET: ${TURNIER_OIDC_CLIENT_SECRET:?SECRET setzen}
+  #   volumes:
+  #     - turnier-data:/data
+  #   command:
+  #     - -db
+  #     - /data/turnier.db
+  #     # Bind-Adressen: die Docker-Defaults genügen (nonroot-User darf keine
+     # privilegierten Ports binden, deshalb 8080/8443 statt 80/443):
+  #     - -addr
+  #     - :8080
+  #     - -https-addr
+  #     - :8443
+  #     - -tls-domain
+  #     - turnier.example.de   # per DNS (A/AAAA) erreichbarer Name
+  #     - -oauth2-base-url
+  #     - https://mail.example.de
+  #     - -oidc-client-id
+  #     - turnier
+  #     - -oidc-redirect-url
+  #     - https://turnier.example.de/auth/callback  # exakt in mailcow registrieren
+
+volumes:
+  turnier-data:

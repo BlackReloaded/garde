@@ -25,6 +25,10 @@ USER nonroot
 WORKDIR /data
 VOLUME /data
 
-EXPOSE 8080
+# Normal: 8080 (HTTP). HTTPS-Modus (-tls-domain): 8080 = ACME + Redirect,
+# 8443 = TLS. Auf dem Host auf 80/443 mappen – der nonroot-User im Image
+# darf keine privilegierten Ports binden, deshalb laufen die Defaults auf
+# 8080/8443.
+EXPOSE 8080 8443
 
 ENTRYPOINT ["turnier"]

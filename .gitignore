@@ -35,3 +35,6 @@ internal/store/seed/
 
 # Auslosungslisten mit Teilnehmer-Namen nicht tracken
 Auslosung*.pdf
+
+# Let's-Encrypt-Zertifikate (Autocert-Cache, s. -tls-cache)
+acme-cache/

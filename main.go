@@ -2,6 +2,8 @@
 //
 // Go + HTMX als Single-Binary: SQLite (ohne CGO), HTMX & Templates eingebettet.
 // Daten werden manuell per CSV-Import geladen (Admin → CSV Import).
+// HTTPS optional eingebaut (-tls-domain): TLS-Terminierung + automatische
+// Let's-Encrypt-Zertifikate via autocert – ohne Reverse Proxy davor.
 //
 // Login: OIDC (OAuth2-Code-Flow) oder generisches OAuth2 (z. B. der
 // eingebaute Provider von mailcow) – ohne Konfiguration startet die App NICHT.
@@ -20,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/acme/autocert"
+
 	"turnier/internal/model"
 	"turnier/internal/store"
 	"turnier/internal/web"
@@ -29,8 +33,23 @@ import (
 var assets embed.FS
 
 func main() {
-	addr := flag.String("addr", ":8080", "HTTP-Adresse")
+	addr := flag.String("addr", ":8080",
+		"HTTP-Adresse (ohne -tls-domain = App); mit -tls-domain Listener für "+
+			"ACME-Challenges + Redirect auf HTTPS (Docker: Host-Port 80 → 8080)")
 	db := flag.String("db", "turnier.db", "Pfad zur SQLite-Datei")
+
+	tlsDomain := flag.String("tls-domain", "",
+		"HTTPS aktivieren: öffentlicher Hostname der App (z. B. turnier.example.de). "+
+			"Zertifikate holt und erneuert die App automatisch über Let's Encrypt "+
+			"(HTTP-01 über -addr, TLS-ALPN über -https-addr). Leer = plain HTTP "+
+			"(für Offline-/LAN-Einsätze leer lassen – LE signiert nur DNS-Namen, "+
+			"keine nackten IPs; für IPv6-only genügt ein AAAA-Record).")
+	httpsAddr := flag.String("https-addr", ":8443",
+		"HTTPS-Bind-Adresse (nur mit -tls-domain); die App muss öffentlich unter "+
+			"https://<tls-domain> erreichbar sein (Docker: Host-Port 443 → 8443)")
+	tlsCache := flag.String("tls-cache", "acme-cache",
+		"Verzeichnis für Let's-Encrypt-Zertifikate (persistieren, z. B. im "+
+			"Docker-Volume /data – dann überlebt der Cache den Container-Neubau)")
 
 	issuer := flag.String("oidc-issuer", "",
 		"OIDC-Issuer (Discovery-URL des Anbieters), z. B. https://accounts.google.com – "+
@@ -118,7 +137,11 @@ func main() {
 	if *oauth2BaseURL != "" {
 		provider = fmt.Sprintf("OAuth2 %s", strings.TrimRight(*oauth2BaseURL, "/"))
 	}
-	log.Printf("turnier läuft auf http://localhost%s (DB: %s)", *addr, *db)
+	runAddr := "http://localhost" + *addr
+	if *tlsDomain != "" {
+		runAddr = "https://" + *tlsDomain
+	}
+	log.Printf("turnier läuft auf %s (DB: %s)", runAddr, *db)
 	log.Printf("Login-Provider: %s (Callback: %s)", provider, *redirectURL)
 
 	// Rollen-Status (DB) loggen; bei leerer Admin-Liste warnen – sonst
@@ -139,7 +162,34 @@ func main() {
 			"kann sich anmelden. Beim Start mit -admins setzen (übernimmt die " +
 			"Adressen in die DB) oder danach in der Admin-UI (Berechtigungen).")
 	}
-	log.Fatal(http.ListenAndServe(*addr, app.Handler()))
+	handler := app.Handler()
+	if *tlsDomain != "" {
+		// TLS-Terminierung in der App (autocert): Beim ersten HTTPS-Kontakt
+		// wird das Zertifikat bei Let's Encrypt geholt und danach automatisch
+		// erneuert. Der HTTP-Listener beantwortet ACME HTTP-01 und leitet den
+		// Rest auf HTTPS um. Ohne erreichbaren ACME-Zugang (und ohne Cache)
+		// entsteht kein Zertifikat – für Offline-Einsätze daher ohne
+		// -tls-domain starten.
+		mgr := &autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(*tlsDomain),
+			Cache:      autocert.DirCache(*tlsCache),
+		}
+		tlsSrv := &http.Server{
+			Addr:      *httpsAddr,
+			Handler:   handler,
+			TLSConfig: mgr.TLSConfig(),
+		}
+		go func() {
+			if err := tlsSrv.ListenAndServeTLS("", ""); err != nil {
+				log.Fatalf("HTTPS-Server (%s): %v", *httpsAddr, err)
+			}
+		}()
+		log.Printf("HTTPS: App auf %s – HTTP-Listener %s = ACME-Challenges + Redirect "+
+			"(Cert-Cache: %s)", *httpsAddr, *addr, *tlsCache)
+		log.Fatal(http.ListenAndServe(*addr, mgr.HTTPHandler(nil)))
+	}
+	log.Fatal(http.ListenAndServe(*addr, handler))
 }
 
 // splitEmails zerlegt eine Komma-Liste in normalisierte (klein, getrimmte)
