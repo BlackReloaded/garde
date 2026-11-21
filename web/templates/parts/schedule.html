@@ -5,7 +5,7 @@
     <span class="count">Zeigt die noch ausstehenden Tänze · Start-Zeiten aus der live gemessenen Taktung · laufende und fertige Werte stehen unter In Bewertung bzw. in der Rangliste</span>
   </div>
   {{if .PlanSegs}}
-  <div class="plan-discs" title="Geplanter Ablauf (Turnier-Start + Disziplin-Dauern + eingeplante Blöcke)">
+  <div class="plan-discs" title="Ablauf: gemessene Zeiten, wo schon Noten geflossen sind; der Rest als Prognose aus Startzeit + Disziplin-Dauern + Blöcken">
     {{range $i, $d := .PlanSegs}}{{if $i}} · {{end}}
       {{if and (eq $d.Kind "disziplin") (eq $d.ID $.DiscID)}}<b>{{.Name}} {{fmtHM .StartEst}}</b>{{else}}{{.Name}} {{fmtHM .StartEst}}{{end}}
     {{end}}

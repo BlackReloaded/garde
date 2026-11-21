@@ -51,8 +51,9 @@ type Settings struct {
 	ScoringDefSec int
 	WalkOnSec     int
 	NumJudges     int
-	// AnchorAt ist die geplante Startzeit der Disziplin (aus der
-	// Turnier-Zeitplanung). Solange noch keine einzige Note existiert,
+	// AnchorAt ist der geplante Anschlusszeitpunkt der Disziplin aus der
+	// Turnier-Zeitplanung (PlanTimeline: gemessene Zeiten, wo vorhanden,
+	// sonst Plan-Dauern). Solange noch keine einzige Note existiert,
 	// startet die Prognose pünktlich zu dieser Zeit statt "ab jetzt" –
 	// aber nur wenn sie in der Zukunft liegt. Die erste eingetragene
 	// Note verankert die Prognose dann in der Realität.
@@ -297,37 +298,80 @@ type PlanSegment struct {
 	EndEst   *time.Time
 }
 
-// PlanDisciplineStarts rechnet den geplanten Ablauf eines Turniers:
-// Turnier-Startzeit (Sekunden seit Mitternacht in der Anzeigzone loc,
-// s. PlanStartAt) + Dauer der Disziplinen (nicht zurückgezogene
-// Teilnehmer × Slot-Default) + eingeplante Blöcke an ihrer Position
-// (Mittagspause, Siegerehrung, …).
+// DiscActual hält die tatsächlich gemessenen Zeiten einer Disziplin,
+// verdichtet aus den Noten-Zeitstempeln: Total/Done = aktive bzw. komplett
+// bewertete Tänzer; First = früheste Note der ganzen Disziplin
+// (Nullzeit = noch nicht begonnen); Last = späteste Note eines komplett
+// bewerteten Tanzes (Nullzeit = noch keiner fertig).
+type DiscActual struct {
+	Total int
+	Done  int
+	First time.Time
+	Last  time.Time
+}
+
+// ActualFromParticipants verdichtet die Noten-Zeitstempel der Teilnehmer
+// auf die Messbasis von PlanTimeline. Zurückgezogene Tänzer zählen nicht
+// (sie haben keinen Slot).
+func ActualFromParticipants(numJudges int, parts []model.Participant) DiscActual {
+	a := DiscActual{}
+	for _, p := range parts {
+		if p.Withdrawn {
+			continue
+		}
+		a.Total++
+		if len(p.Scores) == 0 {
+			continue
+		}
+		first, last := firstLastOf(p.Scores)
+		if a.First.IsZero() || first.Before(a.First) {
+			a.First = first
+		}
+		if len(p.Scores) == numJudges {
+			a.Done++
+			if last.After(a.Last) {
+				a.Last = last
+			}
+		}
+	}
+	return a
+}
+
+// PlanTimeline rechnet den Ablauf eines Turniers aus Plan und gemessener
+// Realität – Realität schlägt Plan, überall und sofort:
+//   - Fertige Disziplinen zeigen ihre gemessenen Zeiten (Start = früheste
+//     Note, Ende = späteste Note eines fertigen Tanzes).
+//   - Eine Pause (Block) endet, sobald die nächste Disziplin wieder Noten
+//     hat: Ende = echte Wiederkehr, nicht die längst überholte Planzeit.
+//   - Eine begonnene Disziplin startet real; ihr Ende ist eine Prognose
+//     ab der letzten gemessenen Note.
+//   - Was noch nicht begonnen hat, wird von der Plan-Dauer (Tänzer ×
+//     Slot-Default bzw. Blockdauer) fortgerechnet – aber an den
+//     Real-Anschluss, nicht an die Starrekette ab Wunsch-Startzeit.
+//
+// Ohne Messungen ergibt sich dieselbe Kette wie reine Planrechnung.
 // Zwischen den Abschnitten gibt es keine feste Pause – Disziplinen und
 // Blöcke laufen direkt aneinander. Ohne gesetzte Startzeit
 // (startAtSec <= 0) gibt es keine Plan-Basis (nil); ohne Disziplinen UND
 // ohne Blöcke ebenso. Leere Disziplinen werden übersprungen; Blöcke an
 // ihrer Position erscheinen trotzdem.
-func PlanDisciplineStarts(startAtSec int, now time.Time, loc *time.Location,
-	discs []model.Discipline, activeParts map[int64]int,
-	blocks []model.PlannedBlock) []PlanSegment {
+func PlanTimeline(startAtSec int, now time.Time, loc *time.Location,
+	discs []model.Discipline, blocks []model.PlannedBlock,
+	act map[int64]DiscActual) []PlanSegment {
 	if startAtSec <= 0 || (len(discs) == 0 && len(blocks) == 0) {
 		return nil
 	}
-	t := PlanStartAt(startAtSec, now, loc)
-	out := make([]PlanSegment, 0, len(discs)+len(blocks))
-	addSeg := func(seg PlanSegment, dur time.Duration) {
-		s := t
-		e := t.Add(dur)
-		seg.StartEst = &s
-		seg.EndEst = &e
-		out = append(out, seg)
-		t = e
+	// Lineare Abschnittsfolge: Disziplinen in Reihenfolge, Blöcke an
+	// ihrer Position (0 = am Anfang, 1..N = nach der N-ten Disziplin,
+	// -1 oder jenseits der Disziplinanzahl = am Ende).
+	type seqItem struct {
+		disc  *model.Discipline
+		block *model.PlannedBlock
 	}
-	// addBlocks platziert alle Blöcke an der Position pos:
-	// 0 = am Anfang, 1..N = nach der N-ten Disziplin, -1 = am Ende.
-	// Positionen jenseits der Disziplinanzahl gelten als "am Ende".
+	seq := make([]seqItem, 0, len(discs)+len(blocks))
 	addBlocks := func(pos int) {
-		for _, b := range blocks {
+		for i := range blocks {
+			b := &blocks[i]
 			if b.DurationSec <= 0 {
 				continue
 			}
@@ -336,25 +380,82 @@ func PlanDisciplineStarts(startAtSec int, now time.Time, loc *time.Location,
 				p = -1
 			}
 			if p == pos {
-				addSeg(PlanSegment{ID: b.ID, Name: b.Name, Kind: SegmentBlock},
-					time.Duration(b.DurationSec)*time.Second)
+				seq = append(seq, seqItem{block: b})
 			}
 		}
 	}
 	addBlocks(0)
-	for i, d := range discs {
-		n := activeParts[d.ID]
-		if n > 0 {
+	for i := range discs {
+		seq = append(seq, seqItem{disc: &discs[i]})
+		addBlocks(i + 1)
+	}
+	addBlocks(-1)
+
+	// Durchlauf mit Zeitcursor: Gemessenes setzt den Anschluss, die
+	// Prognose der noch nicht begonnenen Abschnitte läuft von dort weiter.
+	// Darum springt die Kette auch nie mehr stundenweit in die Vergangenheit.
+	cursor := PlanStartAt(startAtSec, now, loc)
+	out := make([]PlanSegment, 0, len(seq))
+	for i, it := range seq {
+		seg := PlanSegment{}
+		var start, end time.Time
+		if it.disc != nil {
+			d := it.disc
+			seg = PlanSegment{ID: d.ID, Name: d.Name, Kind: SegmentDiscipline}
+			a := act[d.ID]
+			if a.Total == 0 {
+				continue // leere Disziplin: kein Abschnitt
+			}
 			slot := d.WalkOnSec + d.MaxDanceSec + d.ScoringDefSec
 			if slot < 60 {
 				slot = 60
 			}
-			addSeg(PlanSegment{ID: d.ID, Name: d.Name, Kind: SegmentDiscipline},
-				time.Duration(n*slot)*time.Second)
+			switch {
+			case !a.Last.IsZero() && a.Done == a.Total:
+				// fertig: echte Zeiten – auch wenn sie vor dem
+				// Plan liegen (Realität war schneller).
+				start, end = a.First, a.Last
+			case !a.First.IsZero():
+				// gestartet: echter Start; Ende als Prognose ab
+				// der letzten gemessenen Note über die Resttänzer.
+				start = a.First
+				base := a.Last
+				if base.IsZero() {
+					base = a.First
+				}
+				end = base.Add(time.Duration((a.Total-a.Done)*slot) * time.Second)
+			default:
+				// noch nicht gestartet: Prognose ab Anschluss.
+				start = cursor
+				end = cursor.Add(time.Duration(a.Total*slot) * time.Second)
+			}
+		} else {
+			b := it.block
+			seg = PlanSegment{ID: b.ID, Name: b.Name, Kind: SegmentBlock}
+			start = cursor
+			end = cursor.Add(time.Duration(b.DurationSec) * time.Second)
+			// Pauken-Ende real, sobald die nächste Disziplin mit
+			// Noten begonnen hat: das Ende ist deren erste Note –
+			// die Pause war spätestens dann vorbei.
+			for j := i + 1; j < len(seq); j++ {
+				if seq[j].disc == nil {
+					continue
+				}
+				if a, ok := act[seq[j].disc.ID]; ok &&
+					!a.First.IsZero() && a.First.After(start) {
+					end = a.First
+				}
+				break
+			}
 		}
-		addBlocks(i + 1)
+		if !end.After(start) {
+			end = start
+		}
+		s, e := start, end
+		seg.StartEst, seg.EndEst = &s, &e
+		out = append(out, seg)
+		cursor = end
 	}
-	addBlocks(-1)
 	return out
 }
 
@@ -373,4 +474,18 @@ func firstLast(scores []model.ScoreAt) (first, last time.Time, ok bool) {
 		}
 	}
 	return first, last, true
+}
+
+// firstLastOf ist dasselbe für die Note-Typ der Store-Schicht.
+func firstLastOf(scores []model.Score) (first, last time.Time) {
+	first, last = scores[0].UpdatedAt, scores[0].UpdatedAt
+	for _, s := range scores[1:] {
+		if s.UpdatedAt.Before(first) {
+			first = s.UpdatedAt
+		}
+		if s.UpdatedAt.After(last) {
+			last = s.UpdatedAt
+		}
+	}
+	return first, last
 }

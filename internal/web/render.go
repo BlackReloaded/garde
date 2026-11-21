@@ -255,50 +255,59 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	}
 	ld.Discs = allDiscs
 
-	// Turnier-Planung: geplanter Ablauf aus Turnier-Startzeit +
-	// Disziplin-Dauern (Teilnehmer × Slot-Default) + eingeplanten Blöcken
-	// (Mittagspause, Siegerehrung, …). Dient der Anzeige (Turnier-Start,
-	// geplanter Ablauf, „als Nächstes") und als Anker der Prognose der
-	// aktuellen Disziplin, solange dort noch keine Note existiert.
+	// Turnier-Planung: Ablauf aus Turnier-Startzeit + Disziplin-Dauern
+	// (Teilnehmer × Slot-Default) + eingeplanten Blöcken (Mittagspause,
+	// Siegerehrung, …). Die Kette wird an den gemessenen Noten-Zeitstempeln
+	// verankert (Realität schlägt Plan), siehe schedule.PlanTimeline.
+	// Dient der Anzeige (Turnier-Start, Disziplin-Fahrplan, „als Nächstes")
+	// und als Anker der Prognose der aktuellen Disziplin, solange dort noch
+	// keine Note existiert.
 	var anchorAt *time.Time
 	blocks, err := a.store.ListPlannedBlocks(d.CompetitionID)
 	if err != nil {
 		return nil, err
 	}
 	if comp != nil && (comp.StartAtSec > 0 || len(blocks) > 0) {
-		ids := make([]int64, 0, len(allDiscs))
+		// Messbasis: Zeitstempel aller Disziplinen des Turniers (für die
+		// aktuelle die bereits geladenen Teilnehmer weiterverwenden).
+		act := make(map[int64]schedule.DiscActual, len(allDiscs))
 		for _, dd := range allDiscs {
-			ids = append(ids, dd.ID)
+			ps := parts
+			if dd.ID != d.ID {
+				ps, err = a.store.ListParticipantsWithScores(dd.ID)
+				if err != nil {
+					return nil, err
+				}
+			}
+			act[dd.ID] = schedule.ActualFromParticipants(dd.NumJudges, ps)
 		}
-		if counts, err := a.store.CountActiveParticipants(ids); err == nil {
-			plan := schedule.PlanDisciplineStarts(comp.StartAtSec, now, schedule.Zone, allDiscs, counts, blocks)
-			ld.PlanSegs = plan
-			if comp.StartAtSec > 0 {
-				start := schedule.PlanStartAt(comp.StartAtSec, now, schedule.Zone)
-				ld.CompStart = &start
+		plan := schedule.PlanTimeline(comp.StartAtSec, now, schedule.Zone, allDiscs, blocks, act)
+		ld.PlanSegs = plan
+		if comp.StartAtSec > 0 {
+			start := schedule.PlanStartAt(comp.StartAtSec, now, schedule.Zone)
+			ld.CompStart = &start
+		}
+		// Anker nur aus der aktuellen Disziplin (nicht aus einem
+		// Block mit zufällig gleicher ID); ihre Position bestimmt,
+		// ab wo „als Nächstes“ gesucht wird.
+		curIdx := -1
+		for i := range plan {
+			if plan[i].Kind == schedule.SegmentDiscipline && plan[i].ID == d.ID {
+				anchorAt = plan[i].StartEst
+				curIdx = i
+				break
 			}
-			// Anker nur aus der aktuellen Disziplin (nicht aus einem
-			// Block mit zufällig gleicher ID); ihre Position bestimmt,
-			// ab wo „als Nächstes“ gesucht wird.
-			curIdx := -1
-			for i := range plan {
-				if plan[i].Kind == schedule.SegmentDiscipline && plan[i].ID == d.ID {
-					anchorAt = plan[i].StartEst
-					curIdx = i
-					break
-				}
-			}
-			// Als Nächstes: erster Abschnitt in der Zukunft – nach der
-			// aktuellen Disziplin im Plan (sonst: überhaupt).
-			from := 0
-			if curIdx >= 0 {
-				from = curIdx + 1
-			}
-			for i := from; i < len(plan); i++ {
-				if plan[i].StartEst.After(now) {
-					ld.NextSeg = &plan[i]
-					break
-				}
+		}
+		// Als Nächstes: erster Abschnitt in der Zukunft – nach der
+		// aktuellen Disziplin im Plan (sonst: überhaupt).
+		from := 0
+		if curIdx >= 0 {
+			from = curIdx + 1
+		}
+		for i := from; i < len(plan); i++ {
+			if plan[i].StartEst.After(now) {
+				ld.NextSeg = &plan[i]
+				break
 			}
 		}
 	}

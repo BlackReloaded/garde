@@ -267,11 +267,14 @@ Slot-Default) und ggf. eingeplanter Blöcke (Mittagspause, Siegerehrung) –
 die Abschnitte laufen direkt aneinander, es gibt **keine feste Pause**
 zwischen den Disziplinen. Sichtbar in der Live-Ansicht (Kopfzeile
 „Turnier-Start", Disziplin-Fahrplan über der Zeitplan-Tabelle, „Nächste
-Disziplin/Als Nächstes: … ca. HH:MM" in der Status-Card). Solange in der
-aktuellen Disziplin **noch keine einzige Note** existiert und der
-geplante Start in der Zukunft liegt, startet die Prognose pünktlich zum
-geplanten Start statt „ab jetzt"; die erste eingetragene Note verankert sie
-dann in der Realität (Realität schlägt Plan).
+Disziplin/Als Nächstes: … ca. HH:MM" in der Status-Card). Der Fahrplan
+haftet nicht starr an diesen Planzeiten: Wo schon Noten-Zeitstempel
+existieren, zeigt er die **gemessenen Zeiten** (fertige Disziplinen ihre
+echte Start-/Endzeit, Pausen bis zur echten Wiederkehr der nächsten
+Disziplin), und die Prognose des Rests rechnet ab dem realen Stand weiter
+(Realität schlägt Plan). Solange in der aktuellen Disziplin **noch keine
+einzige Note** existiert und der berechnete Start in der Zukunft liegt,
+startet die Prognose pünktlich dorthin statt „ab jetzt".
 
 Alle Werte aktualisieren sich live mit jedem Poll (5 s) und nach jeder
 Score-Eingabe (HTMX OOB-Swap). In der Kopfzeile ist der verwendete

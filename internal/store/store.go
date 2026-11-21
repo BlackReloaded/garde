@@ -493,36 +493,6 @@ func (s *Store) ListParticipants(disciplineID int64) ([]model.Participant, error
 	return out, rows.Err()
 }
 
-// CountActiveParticipants zählt pro Disziplin die nicht zurückgezogenen
-// Teilnehmer (für die Turnier-Zeitplanung: Disziplin-Dauer = Teilnehmer × Slot).
-func (s *Store) CountActiveParticipants(disciplineIDs []int64) (map[int64]int, error) {
-	out := map[int64]int{}
-	if len(disciplineIDs) == 0 {
-		return out, nil
-	}
-	q := `SELECT discipline_id, COUNT(*) FROM participant
-	      WHERE withdrawn = 0 AND discipline_id IN (` +
-		strings.Repeat("?,", len(disciplineIDs)-1) + `?) GROUP BY discipline_id`
-	args := make([]any, len(disciplineIDs))
-	for i, id := range disciplineIDs {
-		args[i] = id
-	}
-	rows, err := s.db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int64
-		var n int
-		if err := rows.Scan(&id, &n); err != nil {
-			return nil, err
-		}
-		out[id] = n
-	}
-	return out, rows.Err()
-}
-
 // ListParticipantsWithScores liefert die Teilnehmer mit allen Noten (für Live-Ansicht/Zeitplan).
 func (s *Store) ListParticipantsWithScores(disciplineID int64) ([]model.Participant, error) {
 	parts, err := s.ListParticipants(disciplineID)

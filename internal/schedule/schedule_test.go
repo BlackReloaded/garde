@@ -264,16 +264,16 @@ func TestComputeAnchorWithScoresIgnored(t *testing.T) {
 	}
 }
 
-func TestPlanDisciplineStarts(t *testing.T) {
+func TestPlanTimeline(t *testing.T) {
 	now := time.Date(2026, 3, 15, 12, 0, 0, 0, Zone)
 	discs := []model.Discipline{
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 		{ID: 2, Name: "Leer", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 		{ID: 3, Name: "Paare", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
-	counts := map[int64]int{1: 2, 3: 3} // Disziplin 2 leer
+	acts := map[int64]DiscActual{1: {Total: 2}, 3: {Total: 3}} // Disziplin 2 leer
 	// Turnier-Start 09:00, keine Pause, Slot-Default je Disziplin 300 s.
-	plan := PlanDisciplineStarts(9*3600, now, Zone, discs, counts, nil)
+	plan := PlanTimeline(9*3600, now, Zone, discs, nil, acts)
 	if len(plan) != 2 {
 		t.Fatalf("Plan-Länge = %d, want 2 (leere Disziplin übersprungen)", len(plan))
 	}
@@ -302,8 +302,8 @@ func TestPlanDisciplineNoFixedGaps(t *testing.T) {
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 		{ID: 2, Name: "Paare", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
-	counts := map[int64]int{1: 1, 2: 1}
-	plan := PlanDisciplineStarts(9*3600, now, Zone, discs, counts, nil)
+	acts := map[int64]DiscActual{1: {Total: 1}, 2: {Total: 1}}
+	plan := PlanTimeline(9*3600, now, Zone, discs, nil, acts)
 	// Garde 09:00–09:05, direkt danach Paare 09:05–09:10 – ohne feste
 	// Pause zwischen den Disziplinen.
 	wantEnd := time.Date(2026, 3, 15, 9, 10, 0, 0, Zone)
@@ -317,8 +317,8 @@ func TestPlanDisciplineNoStart(t *testing.T) {
 	discs := []model.Discipline{
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
-	counts := map[int64]int{1: 1}
-	if plan := PlanDisciplineStarts(0, now, Zone, discs, counts, nil); plan != nil {
+	acts := map[int64]DiscActual{1: {Total: 1}}
+	if plan := PlanTimeline(0, now, Zone, discs, nil, acts); plan != nil {
 		t.Fatalf("Plan = %v, want nil (keine Startzeit gesetzt)", plan)
 	}
 }

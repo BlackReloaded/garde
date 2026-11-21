@@ -51,15 +51,15 @@ func TestPlanStartAtRolloverWindow(t *testing.T) {
 	}
 }
 
-func TestPlanDisciplineStartsRollover(t *testing.T) {
+func TestPlanTimelineRollover(t *testing.T) {
 	// Jetzt 23:00, Turnier-Start 00:30 → Plan beginnt morgen 00:30
 	// (1 Tänzer × 5-min-Slot → 00:35, keine Pause).
 	now := time.Date(2026, 3, 15, 23, 0, 0, 0, Zone)
 	discs := []model.Discipline{
 		{ID: 1, Name: "Garde", MaxDanceSec: 120, ScoringDefSec: 120, WalkOnSec: 60, NumJudges: 7},
 	}
-	counts := map[int64]int{1: 1}
-	plan := PlanDisciplineStarts(30*60, now, Zone, discs, counts, nil)
+	acts := map[int64]DiscActual{1: {Total: 1}}
+	plan := PlanTimeline(30*60, now, Zone, discs, nil, acts)
 	if len(plan) != 1 {
 		t.Fatalf("Plan-Länge = %d, want 1", len(plan))
 	}
