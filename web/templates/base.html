@@ -244,18 +244,60 @@
   // Tabellen, die breiter sind als der Container, bekommen einen dezenten
   // Kanten-Fade, damit das horizontale Wischen auf Touch auffindbar ist.
   // Klassen via JS, damit der Fade nur bei echtem Overflow erscheint.
+  // Zusätzlich: horizontale Scroll-Position merken. Die Polling- und
+  // Score-Antworten bauen die Tabellen per OOB komplett neu; dabei entstehen
+  // frische .table-wrap-Elemente, die bei scrollLeft 0 starten – auf dem
+  // iPhone (zu den Punktespalten gewischt) wäre das bei jedem Reload ein
+  // Sprung nach ganz links. Merke die Position pro Tabelle (Key:
+  // Sektions-id + Index) und setze sie nach dem Swap wieder. Wischt der
+  // Nutzer selbst zurück nach links (<=4 px), gilt das als Absicht und die
+  // Merkposition verschwindet.
+  var scrollMem = {};
+  function wrapKey(w) {
+    var host = w.closest ? w.closest('[id]') : null;
+    var idx = 0;
+    if (host) {
+      var all = host.querySelectorAll('.table-wrap');
+      for (var i = 0; i < all.length; i++) {
+        if (all[i] === w) { idx = i; break; }
+      }
+    }
+    return (host ? host.id : 'x') + '/' + idx;
+  }
   function updateEdgeHints() {
     var wraps = document.querySelectorAll('.table-wrap');
     for (var i = 0; i < wraps.length; i++) {
       var w = wraps[i];
+      if (!w.dataset.scrolled) {
+        // Frisches Element nach einem Swap: gemerkte Position zurückholen.
+        w.dataset.scrolled = '1';
+        var mem = scrollMem[wrapKey(w)];
+        if (mem) w.scrollLeft = mem;
+      }
       var max = w.scrollWidth - w.clientWidth - 1;
       w.classList.toggle('edg-r', max > 8 && w.scrollLeft < max - 8);
       w.classList.toggle('edg-l', w.scrollLeft > 8);
     }
   }
-  document.addEventListener('scroll', updateEdgeHints, true);
+  document.addEventListener('scroll', function (e) {
+    var w = e.target;
+    if (w && w.classList && w.classList.contains('table-wrap')) {
+      var k = wrapKey(w);
+      if (w.scrollLeft > 4) scrollMem[k] = w.scrollLeft;
+      else delete scrollMem[k];
+    }
+    updateEdgeHints();
+  }, true);
   window.addEventListener('resize', updateEdgeHints);
-  document.addEventListener('htmx:afterSwap', updateEdgeHints);
+  // Nach Swaps Positionen wiederherstellen. OOB-Blöcke (Polling antwortet
+  // mit hx-swap-oob) laufen über den oobAfterSwap-Pfad; der View-Wechsel
+  // (Selektoren, Ziel body) löscht die Merkpositionen – neue Ansicht,
+  // frische Ausgangslage.
+  document.addEventListener('htmx:afterSwap', function (e) {
+    if (e.detail && e.detail.target === document.body) scrollMem = {};
+    updateEdgeHints();
+  });
+  document.addEventListener('htmx:oobAfterSwap', updateEdgeHints);
 
   function tick() {
     var c = document.getElementById('clock');
