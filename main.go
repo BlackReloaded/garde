@@ -55,7 +55,7 @@ func main() {
 		"OIDC-Issuer (Discovery-URL des Anbieters), z. B. https://accounts.google.com – "+
 			"genau einer von -oidc-issuer oder -oauth2-base-url – Pflicht")
 	oauth2BaseURL := flag.String("oauth2-base-url", "",
-		"Base-URL eines generischen OAuth2-Providers, z. B. https://mail.kohlbau.de "+
+		"Base-URL eines generischen OAuth2-Providers, z. B. https://EXAMPLE "+
 			"(mailcow; Endpoints /oauth/authorize|token|profile) – "+
 			"genau einer von -oidc-issuer oder -oauth2-base-url – Pflicht")
 	oauth2AuthorizeURL := flag.String("oauth2-authorize-url", "",

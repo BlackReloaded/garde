@@ -36,7 +36,7 @@ services:
       - /data/turnier.db
       # Login-Provider (generisches OAuth2; nicht zusammen mit -oidc-issuer):
       - -oauth2-base-url
-      - https://mail.kohlbau.de
+      - https://EXAMPLE
       - -oidc-client-id
       - turnier
       # -oidc-client-secret wird NICHT hier übergeben, sondern über die
