@@ -315,3 +315,25 @@ func TestPDFFieldName(t *testing.T) {
 		t.Fatalf("pdfFileName = %q", got)
 	}
 }
+
+// Die Export-Links müssen in der Live-Ansicht mitgerendert werden – sonst
+// ist der Export zwar da, aber nirgends zu klicken.
+func TestExportLinksRender(t *testing.T) {
+	app, st := newTestApp(t, AuthConfig{})
+	seedLive(t, st)
+	w := getURL(t, app, "/")
+	if w.Code != 200 {
+		t.Fatalf("Status %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		`href="/export/protocol?s=1&amp;t=1&amp;d=1"`,
+		`href="/export/protocol.csv?s=1&amp;t=1&amp;d=1"`,
+		`href="/export/competition?s=1&amp;t=1"`,
+		`href="/export/competition.csv?s=1&amp;t=1"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("Link %s fehlt in der Live-Ansicht\n%.400s", want, body)
+		}
+	}
+}
