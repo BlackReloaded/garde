@@ -276,8 +276,12 @@ session;turnier;disziplin;startnr;name;verein;star;withdrawn
 ```
 
 - Trenner `;` oder `,`; Kopfzeile optional; Flags `1`/`x`/`*`/`ja` = wahr.
-- **Zeilenreihenfolge = Startreihenfolge.**
-- `startnr` ist **Text** (`001` ≠ `1`).
+- **Zeilenreihenfolge = Startreihenfolge.** Sie bleibt bei erneutem Import
+  und bei Bearbeitungen erhalten – die Liste wird nicht nach Startnummern
+  umsortiert (echte Startlisten führen Nachmeldungen „00x" vorn
+  absteigend auf: 002 startet vor 001).
+- `startnr` ist **Text** (`001` ≠ `1`) und nur Anzeige; die Reihenfolge
+  lässt sich im Admin-Editor mit ↑/↓ korrigieren.
 - Import ist **idempotent**: Session/Turnier/Disziplin werden nach Name
   (case-insensitiv) angelegt oder wiederverwendet; Teilnehmer werden pro
   (Disziplin, Startnummer) neu angelegt bzw. aktualisiert.

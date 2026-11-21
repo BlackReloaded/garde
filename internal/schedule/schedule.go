@@ -95,8 +95,9 @@ type Result struct {
 	Next *ResultEntry
 }
 
-// Compute rechnet die Prognose aus den gegebenen Teilnehmern, sortiert
-// nach Startnummer (aufsteigend), ohne zurückgezogene.
+// Compute rechnet die Prognose aus den gegebenen Teilnehmern – in der
+// übergebenen Reihenfolge (= Startreihenfolge aus Import/Editor, nicht
+// nach Startnummer sortiert), ohne zurückgezogene.
 func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) Result {
 	entries := make([]ResultEntry, 0, len(participants))
 	for _, p := range participants {

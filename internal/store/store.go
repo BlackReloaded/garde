@@ -627,10 +627,14 @@ func (s *Store) CreateParticipant(p model.Participant) (int64, error) {
 	return res.LastInsertId()
 }
 
+// UpdateParticipant ändert die Stammdaten. Die Startreihenfolge
+// (sort_order) bleibt unangetastet: Sie kommt aus dem Import bzw. den
+// ↑/↓-Knöpfen (MoveParticipant) – sonst würde ein erneuter Import oder
+// ein Edit die drawte Reihenfolge auf den Kopf stellen.
 func (s *Store) UpdateParticipant(p model.Participant) error {
 	_, err := s.db.Exec(
-		`UPDATE participant SET start_nr=?, name=?, verein=?, starred=?, withdrawn=?, sort_order=? WHERE id=?`,
-		p.StartNr, p.Name, p.Verein, boolInt(p.Starred), boolInt(p.Withdrawn), p.SortOrder, p.ID)
+		`UPDATE participant SET start_nr=?, name=?, verein=?, starred=?, withdrawn=? WHERE id=?`,
+		p.StartNr, p.Name, p.Verein, boolInt(p.Starred), boolInt(p.Withdrawn), p.ID)
 	return err
 }
 

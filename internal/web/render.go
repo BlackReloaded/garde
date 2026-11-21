@@ -5,8 +5,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -305,8 +303,11 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 		}
 	}
 
-	// Aktive Teilnehmer (ohne zurückgezogene) in Startreihenfolge:
-	// null-padding-Nummern ("001" …) zuerst, dann die übrigen numerisch.
+	// Aktive Teilnehmer (ohne zurückgezogene) in Startreihenfolge: maßgeblich
+	// ist die Import-/Editor-Reihenfolge (sort_order), NICHT die
+	// Startnummer – echte Startlisten führen Nachmeldungen ("00x") gern
+	// absteigend auf (002 startet vor 001); die Auslosungsreihenfolge ist
+	// die Listenreihenfolge.
 	activeParts := make([]model.Participant, 0, len(parts))
 	for _, p := range parts {
 		if p.Withdrawn {
@@ -314,9 +315,6 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 		}
 		activeParts = append(activeParts, p)
 	}
-	sort.SliceStable(activeParts, func(i, j int) bool {
-		return startNrLess(activeParts[i], activeParts[j])
-	})
 	infos := make([]model.ParticipantInfo, 0, len(activeParts))
 	for _, p := range activeParts {
 		ld.Active = append(ld.Active, p)
@@ -342,19 +340,16 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	ld.SlotLabel = fmtDur(ld.Sched.SlotSec)
 
 	// Zeitplan-Tabelle: ALLE Teilnehmer (auch zurückgezogene) in
-	// Startreihenfolge. Zurückgezogene erscheinen gestrichen, werden aber
-	// von der Zeitprognose übersprungen (kein Slot, keine Zeit) – daher
-	// per ID mit den Prognose-Einträgen (nur aktive) matchen.
-	allSorted := append([]model.Participant(nil), parts...)
-	sort.SliceStable(allSorted, func(i, j int) bool {
-		return startNrLess(allSorted[i], allSorted[j])
-	})
+	// Startreihenfolge (= Listenreihenfolge, s. oben). Zurückgezogene
+	// erscheinen gestrichen, werden aber von der Zeitprognose übersprungen
+	// (kein Slot, keine Zeit) – daher per ID mit den Prognose-Einträgen
+	// (nur aktive) matchen.
 	prognose := make(map[int64]schedule.ResultEntry, len(schedResult.Entries))
 	for _, e := range schedResult.Entries {
 		prognose[e.ID] = e
 	}
-	rows := make([]SchedRow, 0, len(allSorted))
-	for _, p := range allSorted {
+	rows := make([]SchedRow, 0, len(parts))
+	for _, p := range parts {
 		if e, ok := prognose[p.ID]; ok {
 			rows = append(rows, SchedRow{ResultEntry: e})
 		} else {
@@ -430,44 +425,9 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 
 	ld.Plain = a.rankFulls(plain, d.NumJudges)
 	ld.Star = a.rankFulls(star, d.NumJudges)
-	// Pending in Startreihenfolge (wie ld.Active).
-	sort.SliceStable(ld.Pending, func(i, j int) bool {
-		return startNrLess(ld.Pending[i].P, ld.Pending[j].P)
-	})
+	// Pending entsteht in ld.Active-Reihenfolge (Startreihenfolge) – keine
+	// Umsortierung.
 	return ld, nil
-}
-
-// startNrClass ordnet Startnummern in drei Gruppen:
-// 0 = null-padding ("001" …) – dieser Block steht immer zuerst,
-// 1 = rein numerisch, 2 = nicht-numerisch. num ist der Zahlenwert.
-func startNrClass(s string) (class int, num int64) {
-	s = strings.TrimSpace(s)
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 2, 0
-	}
-	if len(s) > 1 && s[0] == '0' {
-		return 0, n
-	}
-	return 1, n
-}
-
-// startNrLess vergleicht Teilnehmer nach Startnummer: zuerst der
-// null-padding-Block ("001", "002", …), dann die übrigen numerisch
-// aufsteigend, zuletzt nicht-numerische (alphabetisch); bei
-// Gleichstand innerhalb einer Gruppe entscheidet die ID.
-func startNrLess(a, b model.Participant) bool {
-	ga, na := startNrClass(a.StartNr)
-	gb, nb := startNrClass(b.StartNr)
-	switch {
-	case ga != gb:
-		return ga < gb
-	case ga < 2 && na != nb:
-		return na < nb
-	case strings.TrimSpace(a.StartNr) != strings.TrimSpace(b.StartNr):
-		return strings.TrimSpace(a.StartNr) < strings.TrimSpace(b.StartNr)
-	}
-	return a.ID < b.ID
 }
 
 // finalizePanel füllt die Panel-Daten für den ausgewählten Teilnehmer.
