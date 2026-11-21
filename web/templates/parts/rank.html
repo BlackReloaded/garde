@@ -3,6 +3,8 @@
   <div class="rank-head">
     <h3>Platzierung</h3>
     <span class="count">{{len .Plain}} von {{.ActivePlain}} fertig bewertet</span>
+    <a class="pdf-link" href="/export/protocol?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}"
+       title="Ergebnisprotokoll dieser Disziplin als PDF-Wertungsbogen herunterladen">als PDF</a>
   </div>
   {{if .Plain}}
   <div class="table-wrap">

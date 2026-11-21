@@ -280,6 +280,21 @@ Alle Werte aktualisieren sich live mit jedem Poll (5 s) und nach jeder
 Score-Eingabe (HTMX OOB-Swap). In der Kopfzeile ist der verwendete
 `Ø Slot`-Schätzwert eingeblendet.
 
+## Ergebnis-Export als PDF (Wertungsheft)
+
+Rechts in der Kopfzeile der Platzierungskarte sitzt der Link **„als PDF"**
+(`GET /export/protocol?s=…&t=…&d=…`, Selektoren wie auf der Seite). Er
+lädt den Wertungsbogen der gewählten Disziplin herunter: Querformat A4,
+alle komplett bewerteten Tänze **in Startreihenfolge** mit Startnummer,
+Name, Verein, den Einzelnoten aller Richter, Gesamtsumme und Platz –
+dazu oben Turnier/Disziplin, Stand-Zeit und die Zahl fertig bewerteter
+Tänze. Gestrichene Noten stehen in Klammern, eine offiziell genannte
+Summe ist mit `*` markiert, Sternchen-Tänze mit `(S)` vor dem Namen.
+Das geht ohne Anmeldung (reines Lese-Recht, wie die Live-Ansicht).
+Erzeugt wird das PDF im Binary selbst (`go-pdf/fpdf`, Standard-Schrift
+Helvetica/cp1252) – kein externer Dienst, kein Headless-Browser, offline
+funktionierend.
+
 ## CSV-Import / Export (Admin-Bereich)
 
 ```

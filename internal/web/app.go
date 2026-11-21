@@ -63,6 +63,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /partials/refresh", func(w http.ResponseWriter, r *http.Request) {
 		a.refresh(w, r, explicitSel(r) != 0, false)
 	})
+	// Ergebnisprotokoll (Wertungsheft) als PDF – Lese-Recht wie die
+	// Live-Ansicht selbst, funktioniert auch ohne Anmeldung.
+	mux.HandleFunc("GET /export/protocol", a.exportProtocol)
 	// Änderungen brauchen eine Session: Noten → Rolle bewerten (oder admin),
 	// Admin-Bereich → Rolle admin. Nicht angemeldet bleibt die reine
 	// Live-Ansicht (Lese-Recht).

@@ -4,6 +4,7 @@ go 1.27.3
 
 require (
 	github.com/coreos/go-oidc/v3 v3.21.0
+	github.com/go-pdf/fpdf v0.9.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/oauth2 v0.38.0
 	modernc.org/sqlite v1.61.1
