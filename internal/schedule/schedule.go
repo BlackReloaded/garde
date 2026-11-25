@@ -11,7 +11,10 @@
 // Für die Prognose wird die aktuelle Durchschnittszeit der gesammelten
 // Beobachtungen genutzt; solange noch nicht genug Daten vorliegen,
 // greifen die Defaultwerte (Gap = Aufritt + max. Tanzlänge,
-// Punktezeit = Default).
+// Punktezeit = Default). Der erste Tanz jeder Kategorie liefert bewusst
+// keine Beobachtung: Am Start hakt es manchmal (Verspätung, Einspielen),
+// solche Werte würden den Schnitt dauerhaft verzerren. Dynamisch wird es
+// ab dem zweiten Tanz.
 package schedule
 
 import (
@@ -120,6 +123,11 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 	ns, ngap := 0, 0
 
 	for i, p := range participants {
+		// Der erste Tanz jeder Kategorie bleibt aus der Messung draußen
+		// (s. Paketdokumentation): Startphasen sind unzuverlässig.
+		if i == 0 {
+			continue
+		}
 		first, last, has := firstLast(p.Scores)
 		// Punktezeit: nur aus fertig bewerteten Tänzern messbar
 		// (bei Teilnoten wäre last-first nur ein Teilstück).
@@ -130,8 +138,10 @@ func Compute(set Settings, participants []model.ParticipantInfo, now time.Time) 
 		// Gap "von Bewertung zur nächsten Bewertung": Ende der Bewertung
 		// des Vorturners (letzte Note) bis Beginn dieser (erste Note).
 		// Schon mit der ersten Note messbar – nicht erst nach der 7.
-		// Abnormal lange Abstände (Pause) fließen nicht in den Schnitt.
-		if has && i > 0 {
+		// Erst ab dem dritten Tanz: Der Übergang hinter dem ersten Tanz
+		// gehört noch zur unzuverlässigen Startphase. Abnormal lange
+		// Abstände (Pause) fließen nicht in den Schnitt.
+		if has && i >= 2 {
 			prev := participants[i-1]
 			if len(prev.Scores) == n {
 				if _, prevLast, _ := firstLast(prev.Scores); first.After(prevLast) && first.Sub(prevLast).Seconds() <= gapCapSec {

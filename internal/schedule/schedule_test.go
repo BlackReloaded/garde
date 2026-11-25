@@ -58,12 +58,13 @@ func TestComputeWithObservations(t *testing.T) {
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
 	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
 
-	// P1: 7 Noten zwischen 13:10:00 und 13:20:00 (Punktezeit 10 min)
+	// P1: 7 Noten zwischen 13:10:00 und 13:20:00 – erster Tanz, fließt
+	//     nicht in die Messung ein.
 	// P2: 7 Noten zwischen 13:25:00 und 13:35:00 (Punktezeit 10 min)
-	//    -> Gap 1 = 13:25 - 13:20 = 5 min, Gap 2 = 13:40 - 13:35 = 5 min
-	// P3: 3 Noten seit 13:40:00 -> wird gerade bewertet
-	// P4: keine Noten
-	// => Slot = Ø Gap (5 min) + Ø Punktezeit (10 min) = 900 s
+	//     -> als zweiter Tanz gemessen.
+	// P3: 3 Noten seit 13:40:00 -> wird gerade bewertet; der Übergang
+	//     hinter P2 (13:35 → 13:40 = 5 min) ist schon messbar.
+	// => Slot = Ø Gap (5 min) + Ø Punktezeit (10 min, nur P2) = 900 s
 	p1 := mkScores(7, now.Add(-50*time.Minute), 0, 100*time.Second)
 	p2 := mkScores(7, now.Add(-35*time.Minute), 0, 100*time.Second)
 	p3 := mkScores(3, now.Add(-20*time.Minute), 0, 90*time.Second)
@@ -78,7 +79,7 @@ func TestComputeWithObservations(t *testing.T) {
 	if res.SlotSec != 900 {
 		t.Fatalf("SlotSec = %d, want 900", res.SlotSec)
 	}
-	// Punktezeit: P1 10 min, P2 10 min -> 600 s
+	// Punktezeit: nur P2 (10 min) – P1 als erster Tanz zählt nicht mit.
 	if res.ScoringSec != 600 {
 		t.Fatalf("ScoringSec = %d, want 600", res.ScoringSec)
 	}
@@ -124,37 +125,38 @@ func TestComputeFinished(t *testing.T) {
 	}
 }
 
-func TestComputeGapStartsEarly(t *testing.T) {
+func TestComputeFirstDanceExcluded(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
 	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
-	// P1 fertig: 7 Noten von 13:10 bis 13:20 (Punktezeit 600 s).
-	// P2: erst 2 Noten, erste um 13:25 -> Gap = 5 min = 300 s.
-	// Der Slot ist also schon "von Bewertung zur nächsten Bewertung"
-	// messbar, ohne auf P2s 7. Note zu warten (alt: Default 300 s).
-	// P3: noch keine Noten.
+	// P1 (erster Tanz): 7 Noten 13:10–13:20 (10 min). Der aufgeblähte
+	// Start würde den Schnitt verzerren (auf 9 min) – er bleibt daher
+	// außen vor.
+	// P2: 7 Noten 13:25–13:33 (8 min) -> Punktezeit nur hieraus: 480 s.
+	// P3: 3 Noten seit 13:40 -> Übergang hinter P2 = 13:33 → 13:40 =
+	//     420 s, schon mit der ersten Note messbar (nicht erst nach der
+	//     7.). Der Übergang hinter P1 (13:20 → 13:25) wird nicht gemessen.
+	// => Slot = 420 + 480 = 900 s.
 	p1 := mkScores(7, now.Add(-50*time.Minute), 0, 100*time.Second)
-	p2 := mkScores(2, now.Add(-35*time.Minute), 0, 90*time.Second)
+	p2 := mkScores(7, now.Add(-35*time.Minute), 0, 80*time.Second)
+	p3 := mkScores(3, now.Add(-20*time.Minute), 0, 90*time.Second)
 	ps := []model.ParticipantInfo{
 		{ID: 1, StartNr: "1", Name: "P1", Scores: p1},
 		{ID: 2, StartNr: "2", Name: "P2", Scores: p2},
-		{ID: 3, StartNr: "3", Name: "P3"},
+		{ID: 3, StartNr: "3", Name: "P3", Scores: p3},
 	}
 	res := Compute(set, ps, now)
-	if res.ScoringSec != 600 {
-		t.Fatalf("ScoringSec = %d, want 600", res.ScoringSec)
+	if res.ScoringSec != 480 {
+		t.Fatalf("ScoringSec = %d, want 480 (nur P2, P1 als Starttanz nicht gemessen)", res.ScoringSec)
 	}
-	// Slot = Gap 300 + Punktezeit 600 = 900 s (nicht der Default 1020 s).
 	if res.SlotSec != 900 {
-		t.Fatalf("SlotSec = %d, want 900", res.SlotSec)
+		t.Fatalf("SlotSec = %d, want 900 (420 + 480)", res.SlotSec)
 	}
-	// Current = P2 (2/7): Rest = 600*5/7 ≈ 428 s
-	wantEnd2 := now.Add(428 * time.Second)
-	if got := res.Entries[1].EndEst; got.Sub(wantEnd2) > time.Second {
-		t.Fatalf("EndEst[1] = %v, want ≈ %v", got, wantEnd2)
+	if res.Current == nil || res.Current.ID != 3 {
+		t.Fatal("Current sollte P3 sein")
 	}
-	// P3: Ende = Ende P2 + Slot
-	wantEnd3 := wantEnd2.Add(900 * time.Second)
+	// P3: 3/7 Noten, Rest = 480 * 4/7 ≈ 274 s -> Ende ≈ now + 274 s
+	wantEnd3 := now.Add(274 * time.Second)
 	if got := res.Entries[2].EndEst; got.Sub(wantEnd3) > time.Second {
 		t.Fatalf("EndEst[2] = %v, want ≈ %v", got, wantEnd3)
 	}
@@ -164,22 +166,25 @@ func TestComputeBreakIgnored(t *testing.T) {
 	set := Settings{MaxDanceSec: model.DefaultMaxDanceSec, ScoringDefSec: model.DefaultScoringSec,
 		WalkOnSec: model.DefaultWalkOnSec, NumJudges: model.DefaultNumJudges}
 	now := time.Date(2026, 10, 27, 14, 0, 0, 0, Zone)
-	// P1 fertig: letzte Note um 13:06.
-	// P2: erste Note erst um 14:00 (54 min später = Pause) ->
-	// das Gap wird verworfen, es greift der Default (300 s).
-	p1 := mkScores(7, now.Add(-60*time.Minute), 0, 60*time.Second)
-	p2 := mkScores(1, now, 0, 0)
+	// P1 (erster Tanz, 12:40–12:46) liefert ohnehin keine Messwerte.
+	// P2 komplett 12:50–13:00 -> Punktezeit 600 s.
+	// P3: erste Note erst um 14:00 (60 min nach P2 = Pause) -> das Gap
+	// wird verworfen, es greift der Default (180 s).
+	p1 := mkScores(7, now.Add(-80*time.Minute), 0, 60*time.Second)
+	p2 := mkScores(7, now.Add(-70*time.Minute), 0, 100*time.Second)
+	p3 := mkScores(1, now, 0, 0)
 	ps := []model.ParticipantInfo{
 		{ID: 1, StartNr: "1", Name: "P1", Scores: p1},
 		{ID: 2, StartNr: "2", Name: "P2", Scores: p2},
+		{ID: 3, StartNr: "3", Name: "P3", Scores: p3},
 	}
 	res := Compute(set, ps, now)
-	// Punktezeit P1 = 6*60 = 360 s; Gap = Default 60+120 = 180 s.
-	if res.ScoringSec != 360 {
-		t.Fatalf("ScoringSec = %d, want 360", res.ScoringSec)
+	// Punktezeit nur aus P2 (P1 bleibt außen vor); Gap = Default.
+	if res.ScoringSec != 600 {
+		t.Fatalf("ScoringSec = %d, want 600", res.ScoringSec)
 	}
-	if res.SlotSec != 540 {
-		t.Fatalf("SlotSec = %d, want 540 (Default-Gap 180 + Punktezeit 360)", res.SlotSec)
+	if res.SlotSec != 780 {
+		t.Fatalf("SlotSec = %d, want 780 (Default-Gap 180 + Punktezeit 600)", res.SlotSec)
 	}
 }
 
