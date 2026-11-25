@@ -561,7 +561,7 @@ func TestPWAHead(t *testing.T) {
 	for _, want := range []string{
 		`<link rel="manifest" href="/static/manifest.webmanifest">`,
 		`<meta name="apple-mobile-web-app-capable" content="yes">`,
-		`<meta name="apple-mobile-web-app-title" content="turnier">`,
+		`<meta name="apple-mobile-web-app-title" content="Gardetanzturnier">`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Head ohne: %s", want)
