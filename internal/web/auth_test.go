@@ -573,6 +573,17 @@ func TestPWAHead(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/manifest+json" {
 		t.Errorf("Manifest Content-Type = %q, wollte application/manifest+json", ct)
 	}
+
+	// PNG-Fallback (Favicon für Safari, apple-touch-icon): muss mit ins
+	// eingebettete FS und als Bild ausgeliefert werden.
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/static/garde-icon.png", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /static/garde-icon.png: Status %d, wollte 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("PNG Content-Type = %q, wollte image/png", ct)
+	}
 }
 
 // TestLiveWithdrawnShownButSkipped: gestrichene Teilnehmer erscheinen im

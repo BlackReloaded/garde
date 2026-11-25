@@ -857,6 +857,8 @@ func (a *Auth) errorPage(w http.ResponseWriter, status int, title, msg string) {
 <html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>turnier · %s</title>
+<link rel="icon" type="image/svg+xml" href="/static/garde-icon.svg">
+<link rel="icon" type="image/png" href="/static/garde-icon.png">
 <link rel="stylesheet" href="/static/style.css"></head>
 <body>
 <div class="wrap auth-error">
