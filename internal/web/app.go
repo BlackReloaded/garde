@@ -57,19 +57,25 @@ func New(st *store.Store, assets fs.FS, auth *Auth) (*App, error) {
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /{$}", a.livePage)
+	// Lese-Zugang: ohne -password offen wie bisher. Mit Zugangs-Passwort
+	// brauchen anonyme Requests erst das Passwort (Cookie /access);
+	// Sessions mit Rolle passieren die Prüfung direkt.
+	gate := a.auth.requireAccess
+	mux.HandleFunc("GET /{$}", gate(a.livePage))
 	// Polling ohne sel → Panel bleibt stehen (Fokus/Eingabe erhalten);
 	// sel-Wechsel im Panel → Panel wird mitgerendert.
-	mux.HandleFunc("GET /partials/refresh", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /partials/refresh", gate(func(w http.ResponseWriter, r *http.Request) {
 		a.refresh(w, r, explicitSel(r) != 0, false)
-	})
+	}))
+	mux.HandleFunc("GET /access", a.auth.accessForm)
+	mux.HandleFunc("POST /access", a.auth.accessSubmit)
 	// Ergebnisprotokoll (Wertungsheft) – je eine Disziplin und ein ganzes
 	// Turnier, jeweils auch als CSV. Lese-Recht wie die Live-Ansicht selbst,
-	// funktioniert auch ohne Anmeldung.
-	mux.HandleFunc("GET /export/protocol", a.exportProtocol)
-	mux.HandleFunc("GET /export/competition", a.exportProtocol)
-	mux.HandleFunc("GET /export/protocol.csv", a.exportResultsCSV)
-	mux.HandleFunc("GET /export/competition.csv", a.exportResultsCSV)
+	// funktioniert ohne Zugangs-Passwort auch ohne jede Anmeldung.
+	mux.HandleFunc("GET /export/protocol", gate(a.exportProtocol))
+	mux.HandleFunc("GET /export/competition", gate(a.exportProtocol))
+	mux.HandleFunc("GET /export/protocol.csv", gate(a.exportResultsCSV))
+	mux.HandleFunc("GET /export/competition.csv", gate(a.exportResultsCSV))
 	// Änderungen brauchen eine Session: Noten → Rolle bewerten (oder admin),
 	// Admin-Bereich → Rolle admin. Nicht angemeldet bleibt die reine
 	// Live-Ansicht (Lese-Recht).

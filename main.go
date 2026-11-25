@@ -6,7 +6,10 @@
 // Let's-Encrypt-Zertifikate via autocert – ohne Reverse Proxy davor.
 //
 // Login: OIDC (OAuth2-Code-Flow) oder generisches OAuth2 (z. B. der
-// eingebaute Provider von mailcow) – ohne Konfiguration startet die App NICHT.
+// eingebaute Provider von mailcow). Ohne Provider-Flag startet die App nur
+// mit -password: einem allgemeinen Zugangs-Passwort, das die Live-Ansicht
+// für alle öffnet, die es kennen (reine Lese-Ansicht). Ganz ohne Provider
+// UND ohne Passwort startet die App nicht.
 // Rollen (admin/bewerten) werden über die Datenbank vergeben (Admin-UI);
 // nur dort gelistete Benutzer dürfen etwas ändern, alle anderen haben
 // reines Lese-Recht.
@@ -78,17 +81,24 @@ func main() {
 			"entfernt nichts. Danach gilt nur die DB (Admin → Berechtigungen)")
 	sessionHours := flag.Float64("session-hours", 12,
 		"Session-Laufzeit in Stunden")
+	password := flag.String("password", os.Getenv("TURNIER_PASSWORD"),
+		"Allgemeines Zugangs-Passwort (auch über Env TURNIER_PASSWORD). Wenn "+
+			"gesetzt, öffnet die Live-Ansicht erst nach Eingabe des Passworts – "+
+			"reine Lese-Ansicht, Bewerten/Admin bleiben dem Login vorbehalten. "+
+			"Ohne Provider-Flags Pflicht (einzige Zugangsmöglichkeit), mit "+
+			"Provider zusätzlich vor die Lese-Ansicht gesetzt.")
 	flag.Parse()
 
+	providerSet := *issuer != "" || *oauth2BaseURL != ""
 	switch {
-	case *issuer == "" && *oauth2BaseURL == "":
-		log.Fatal("Login-Provider ist Pflicht: entweder -oidc-issuer (OIDC) oder " +
-			"-oauth2-base-url (generisches OAuth2, z. B. mailcow) setzen – " +
-			"ohne Auth startet turnier nicht.")
 	case *issuer != "" && *oauth2BaseURL != "":
 		log.Fatal("Nur EIN Login-Provider ist erlaubt: -oidc-issuer und " +
 			"-oauth2-base-url dürfen nicht gleichzeitig gesetzt sein.")
-	case *clientID == "" || *clientSecret == "":
+	case !providerSet && *password == "":
+		log.Fatal("Ohne Login-Provider ist -password Pflicht: Live-Ansicht per " +
+			"Zugangs-Passwort schützen (oder Env TURNIER_PASSWORD) oder " +
+			"-oidc-issuer / -oauth2-base-url setzen – ohne beides startet turnier nicht.")
+	case providerSet && (*clientID == "" || *clientSecret == ""):
 		log.Fatal("Login-Client ist Pflicht: -oidc-client-id und -oidc-client-secret " +
 			"setzen (Secret alternativ über Env TURNIER_OIDC_CLIENT_SECRET).")
 	}
@@ -123,6 +133,7 @@ func main() {
 		ClientSecret:       *clientSecret,
 		RedirectURL:        *redirectURL,
 		SessionTTL:         time.Duration(*sessionHours * float64(time.Hour)),
+		Password:           *password,
 	})
 	if err != nil {
 		log.Fatalf("Auth initialisieren: %v", err)
@@ -133,16 +144,22 @@ func main() {
 		log.Fatalf("Web-App initialisieren: %v", err)
 	}
 
-	provider := fmt.Sprintf("OIDC %s", *issuer)
-	if *oauth2BaseURL != "" {
-		provider = fmt.Sprintf("OAuth2 %s", strings.TrimRight(*oauth2BaseURL, "/"))
-	}
 	runAddr := "http://localhost" + *addr
 	if *tlsDomain != "" {
 		runAddr = "https://" + *tlsDomain
 	}
-	log.Printf("turnier läuft auf %s (DB: %s)", runAddr, *db)
-	log.Printf("Login-Provider: %s (Callback: %s)", provider, *redirectURL)
+	if providerSet {
+		provider := fmt.Sprintf("OIDC %s", *issuer)
+		if *oauth2BaseURL != "" {
+			provider = fmt.Sprintf("OAuth2 %s", strings.TrimRight(*oauth2BaseURL, "/"))
+		}
+		log.Printf("turnier läuft auf %s (DB: %s)", runAddr, *db)
+		log.Printf("Login-Provider: %s (Callback: %s)", provider, *redirectURL)
+	} else {
+		log.Printf("turnier läuft auf %s (DB: %s)", runAddr, *db)
+		log.Printf("Login: kein Provider – Live-Ansicht nur mit Zugangs-Passwort " +
+			"(Lese-Zugang). Bewerten/Admin erst mit Provider-Login möglich.")
+	}
 
 	// Rollen-Status (DB) loggen; bei leerer Admin-Liste warnen – sonst
 	// könnte sich niemand anmelden und man wüsste beim Start nicht warum.
@@ -157,7 +174,7 @@ func main() {
 		}
 	}
 	log.Printf("Rollen-Liste (DB): %d admin, %d bewerten", nAdmin, nScorer)
-	if nAdmin == 0 {
+	if nAdmin == 0 && providerSet {
 		log.Printf("WARNUNG: Es gibt noch KEINEN Admin in der Datenbank – niemand " +
 			"kann sich anmelden. Beim Start mit -admins setzen (übernimmt die " +
 			"Adressen in die DB) oder danach in der Admin-UI (Berechtigungen).")

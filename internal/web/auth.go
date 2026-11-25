@@ -1,12 +1,20 @@
 // auth.go: Login (OIDC oder generisches OAuth2, z. B. mailcow),
-// Server-Sessions und Rollen-Middleware.
+// Server-Sessions, Rollen-Middleware und optional ein allgemeines
+// Zugangs-Passwort.
 //
-// Zwei Provider-Modi (genau einer konfiguriert):
+// Provider-Modi (höchstens einer konfiguriert):
 //
 //   - OIDC: Authorization Code + PKCE, Discovery, ID-Token-Verifizierung.
 //   - Generisches OAuth2 (z. B. der eingebaute Provider von mailcow):
 //     feste Endpoints (/oauth/authorize, /oauth/token, /oauth/profile),
 //     Access-Token statt ID-Token, Benutzerdaten über das Profile-Endpunkt.
+//   - Kein Provider: nur das Zugangs-Passwort (-password) – die App startet
+//     dann ohne Login; Bewerten/Admin ist erst mit Provider möglich.
+//
+// Das Zugangs-Passwort ist Lese-Zugang, KEIN Login: Es öffnet Live-Ansicht
+// und Exporte für alle, die es kennen (Passwort-Seite /access, signiertes
+// Cookie, pro IP nach 5 Fehlversuchen 60 s Pause). Bewerten und Admin
+// brauchen weiterhin Provider-Login + Rollen-Eintrag in der DB.
 //
 // Rollen werden über die Datenbank-Tabelle login_role vergeben (einzige
 // Quelle): Einträge legt der Admin in der Admin-UI an; beim Start werden
@@ -33,6 +41,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -50,15 +59,13 @@ import (
 const (
 	sessionCookie = "turnier_session"
 	stateCookie   = "turnier_auth_state"
+	accessCookie  = "turnier_access" // Nachweis des Zugangs-Passworts
 	stateTTL      = 5 * time.Minute
 )
 
 // AuthConfig ist die Login-Konfiguration (aus Flags/Env, s. main.go).
-// Genau einer der beiden Provider-Modi muss gesetzt sein:
-//
-//   - Issuer: OIDC-Modus (Discovery unter Issuer, ID-Token-Verifizierung)
-//   - OAuth2BaseURL: generischer OAuth2-Modus (z. B. mailcow), Endpoints
-//     werden daraus abgeleitet und können einzeln überschrieben werden.
+// Ohne Provider (Issuer/OAuth2BaseURL) muss mindestens Password gesetzt
+// sein – sonst startet die App ohne jede Auth, und das ist nicht gedacht.
 type AuthConfig struct {
 	Issuer string // OIDC: Discovery-URL des Providers
 
@@ -72,13 +79,16 @@ type AuthConfig struct {
 	ClientSecret string
 	RedirectURL  string        // muss exakt im Provider registriert sein
 	SessionTTL   time.Duration // Laufzeit der Session (Default 12 h)
+
+	Password string // Allgemeines Zugangs-Passwort (nur Lese-Zugang, s. oben)
 }
 
 // Auth bündelt Provider-Client (OIDC oder generisches OAuth2),
-// Rollen-Liste (DB) und Session-Handling.
+// Rollen-Liste (DB), Session-Handling und das Zugangs-Passwort.
 type Auth struct {
 	store        *store.Store
 	generic      bool   // generischer OAuth2-Modus (z. B. mailcow)
+	hasProvider  bool   // OIDC oder OAuth2 konfiguriert (sonst nur Passwort)
 	providerName string // Wert für login_user.provider (Issuer bzw. Base-URL)
 	authURL      string // generisch: Authorize-Endpunkt
 	profileURL   string // generisch: Profile-Endpunkt
@@ -87,8 +97,19 @@ type Auth struct {
 	redirectURL  string
 	secure       bool // Secure-Cookie, wenn der Provider per HTTPS aufgerufen wird
 	sessionTTL   time.Duration
-	signingKey   []byte // nur im Speicher: signiert die State-Cookies
+	signingKey   []byte // nur im Speicher: signiert State- und Zugangs-Cookies
 	conf         *oauth2.Config
+
+	// Zugangs-Passwort (-password): wenn gesetzt, brauchen anonyme
+	// Requests ein gültiges access-Cookie für die Lese-Routen. loginPath
+	// ist das Ziel, wenn nach Login verlangt wird (ohne Provider führt
+	// es zum Passwort-Formular). pwMu/pwAttempts zählt Fehlversuche pro
+	// IP für die Passwort-Eingabe.
+	accessPass []byte
+	loginPath  string
+
+	pwMu       sync.Mutex
+	pwAttempts map[string]*pwCounter
 
 	// Rollen-Einträge (DB-Tabelle login_role, die einzige Quelle) als
 	// Cache: einmal geladen, bei jeder Änderung neu geladen → wirksam ab
@@ -105,11 +126,16 @@ type Auth struct {
 // NewAuth erzeugt den Auth-Handler. Es wird KEIN Netzwerk-Kontakt
 // aufgenommen (OIDC-Discovery ist lazy) – Tests können frei damit arbeiten.
 func NewAuth(st *store.Store, cfg AuthConfig) (*Auth, error) {
-	if (cfg.Issuer == "") == (cfg.OAuth2BaseURL == "") {
-		return nil, errors.New("Login: genau einer von Issuer (OIDC) oder " +
-			"OAuth2BaseURL (z. B. mailcow) muss gesetzt sein")
+	providerSet := cfg.Issuer != "" || cfg.OAuth2BaseURL != ""
+	if cfg.Issuer != "" && cfg.OAuth2BaseURL != "" {
+		return nil, errors.New("Login: nur EIN Provider – Issuer (OIDC) und " +
+			"OAuth2BaseURL nicht gleichzeitig")
 	}
-	if cfg.ClientID == "" || cfg.RedirectURL == "" {
+	if !providerSet && cfg.Password == "" {
+		return nil, errors.New("Login: ohne Provider ist das Zugangs-Passwort " +
+			"Pflicht (AuthConfig.Password) – sonst startet die App ohne Auth")
+	}
+	if providerSet && (cfg.ClientID == "" || cfg.RedirectURL == "") {
 		return nil, errors.New("Login: ClientID und RedirectURL sind Pflicht")
 	}
 	if cfg.SessionTTL <= 0 {
@@ -118,48 +144,62 @@ func NewAuth(st *store.Store, cfg AuthConfig) (*Auth, error) {
 	a := &Auth{
 		store:        st,
 		generic:      cfg.OAuth2BaseURL != "",
+		hasProvider:  providerSet,
 		clientID:     cfg.ClientID,
 		clientSecret: cfg.ClientSecret,
 		redirectURL:  cfg.RedirectURL,
 		secure:       strings.HasPrefix(strings.ToLower(cfg.RedirectURL), "https://"),
 		sessionTTL:   cfg.SessionTTL,
+		pwAttempts:   map[string]*pwCounter{},
 	}
-	if a.generic {
-		base := strings.TrimRight(cfg.OAuth2BaseURL, "/")
-		a.providerName = base
-		a.authURL = cfg.OAuth2AuthorizeURL
-		if a.authURL == "" {
-			a.authURL = base + "/oauth/authorize"
-		}
-		tokenURL := cfg.OAuth2TokenURL
-		if tokenURL == "" {
-			tokenURL = base + "/oauth/token"
-		}
-		a.profileURL = cfg.OAuth2ProfileURL
-		if a.profileURL == "" {
-			a.profileURL = base + "/oauth/profile"
-		}
-		scope := strings.TrimSpace(cfg.OAuth2Scope)
-		if scope == "" {
-			scope = "profile"
-		}
-		a.conf = &oauth2.Config{
-			ClientID:     cfg.ClientID,
-			ClientSecret: cfg.ClientSecret,
-			RedirectURL:  cfg.RedirectURL,
-			Scopes:       []string{scope},
-			Endpoint: oauth2.Endpoint{
-				AuthURL:  a.authURL,
-				TokenURL: tokenURL,
-			},
-		}
-	} else {
-		a.providerName = cfg.Issuer
-		a.conf = &oauth2.Config{
-			ClientID:     cfg.ClientID,
-			ClientSecret: cfg.ClientSecret,
-			RedirectURL:  cfg.RedirectURL,
-			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+	if cfg.Password != "" {
+		a.accessPass = []byte(cfg.Password)
+	}
+	a.loginPath = "/auth/login"
+	if !providerSet {
+		a.loginPath = "/access"
+	}
+	// Provider-Client nur mit Provider bauen: ohne Provider (nur
+	// Zugangs-Passwort) gibt es conf = nil – die Login-Routen laufen
+	// dann nie hinein (login leitet aufs Passwort-Formular um).
+	if providerSet {
+		if a.generic {
+			base := strings.TrimRight(cfg.OAuth2BaseURL, "/")
+			a.providerName = base
+			a.authURL = cfg.OAuth2AuthorizeURL
+			if a.authURL == "" {
+				a.authURL = base + "/oauth/authorize"
+			}
+			tokenURL := cfg.OAuth2TokenURL
+			if tokenURL == "" {
+				tokenURL = base + "/oauth/token"
+			}
+			a.profileURL = cfg.OAuth2ProfileURL
+			if a.profileURL == "" {
+				a.profileURL = base + "/oauth/profile"
+			}
+			scope := strings.TrimSpace(cfg.OAuth2Scope)
+			if scope == "" {
+				scope = "profile"
+			}
+			a.conf = &oauth2.Config{
+				ClientID:     cfg.ClientID,
+				ClientSecret: cfg.ClientSecret,
+				RedirectURL:  cfg.RedirectURL,
+				Scopes:       []string{scope},
+				Endpoint: oauth2.Endpoint{
+					AuthURL:  a.authURL,
+					TokenURL: tokenURL,
+				},
+			}
+		} else {
+			a.providerName = cfg.Issuer
+			a.conf = &oauth2.Config{
+				ClientID:     cfg.ClientID,
+				ClientSecret: cfg.ClientSecret,
+				RedirectURL:  cfg.RedirectURL,
+				Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+			}
 		}
 	}
 	key := make([]byte, 32)
@@ -449,6 +489,13 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 	next := sanitizeNext(r.URL.Query().Get("next"))
 	if as := a.authState(r); as.LoggedIn && (as.CanScore || as.CanAdmin) {
 		http.Redirect(w, r, next, http.StatusSeeOther)
+		return
+	}
+	if !a.hasProvider {
+		// Kein Provider konfiguriert: /auth/login hat hier nichts zu
+		// suchen (kein Discovery-Kontakt) – weiter zum Zugangs-Formular.
+		http.Redirect(w, r, "/access?next="+url.QueryEscape(next),
+			http.StatusSeeOther)
 		return
 	}
 	if a.generic {
@@ -788,7 +835,7 @@ func (a *Auth) requireRole(minRole string, h http.HandlerFunc) http.HandlerFunc 
 	// HX-Redirect (Page-Navigation, z. B. bei abgelaufener Session mitten im
 	// Turnier), normale Requests einen 303-Redirect.
 	redirectToLogin := func(w http.ResponseWriter, r *http.Request, next string) {
-		loc := "/auth/login?next=" + url.QueryEscape(next)
+		loc := a.loginPath + "?next=" + url.QueryEscape(next)
 		if r.Header.Get("HX-Request") == "true" {
 			w.Header().Set("HX-Redirect", loc)
 			w.WriteHeader(http.StatusNoContent)
@@ -846,6 +893,250 @@ func roleRank(role string) int {
 	default:
 		return 0
 	}
+}
+
+// ---------- Zugangs-Passwort (Lese-Zugang) ----------
+
+const (
+	pwMaxFails  = 5
+	pwBlockTime = 60 * time.Second
+)
+
+// pwCounter zählt Passwort-Fehlversuche einer IP innerhalb eines festen
+// Fensters (pwBlockTime). Ab pwMaxFails werden weitere Eingaben ignoriert.
+type pwCounter struct {
+	fails int
+	until time.Time // Ende des Fensters (= Ende einer Sperre)
+}
+
+// accessOK prüft den Lese-Zugang. Ohne Zugangs-Passwort ist alles offen
+// (Verhalten wie ohne dieses Feature). Mit Passwort genügt ein gültiges
+// access-Cookie – oder eine Login-Session mit Rolle: Scorer/Admin lesen
+// ohne Umweg. "Eingeloggt" ohne Rolle zählt nicht (die Middleware wirft
+// solche Sessions ohnehin raus).
+func (a *Auth) accessOK(r *http.Request) bool {
+	if a.accessPass == nil {
+		return true
+	}
+	if c, err := r.Cookie(accessCookie); err == nil && a.accessValid(c.Value) {
+		return true
+	}
+	as := a.authState(r)
+	return as.LoggedIn && roleRank(as.Role) > 0
+}
+
+// requireAccess legt die Lese-Routen (Live-Ansicht, Partial-Refresh,
+// Exporte) hinter das Zugangs-Passwort. Ohne Passwort durchsichtig.
+// HTMX-Polling bekommt ein HX-Redirect aufs Formular statt ins Leere zu
+// pollern; normale Requests werden 303 umgeleitet.
+func (a *Auth) requireAccess(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.accessOK(r) {
+			h.ServeHTTP(w, r)
+			return
+		}
+		next := r.URL.Path
+		if q := r.URL.RawQuery; q != "" {
+			next += "?" + q
+		}
+		loc := "/access?next=" + url.QueryEscape(next)
+		if r.Header.Get("HX-Request") == "true" {
+			w.Header().Set("HX-Redirect", loc)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Redirect(w, r, loc, http.StatusSeeOther)
+	}
+}
+
+// accessPayload ist der Inhalt des Zugangs-Cookies: nur das Ablaufdatum.
+type accessPayload struct {
+	Exp int64 `json:"e"`
+}
+
+// signAccess baut den Cookie-Wert (Basis64-Nutzdaten + HMAC über dem
+// Signing-Key). Ohne das Secret lässt sich kein Zugang erdenken; nach
+// einem Neustart sind alle Zugangs-Cookies pauschal ungültig (neuer
+// Key), spätestens nach SessionTTL auch vorher.
+func (a *Auth) signAccess(exp time.Time) (string, error) {
+	data, err := json.Marshal(accessPayload{Exp: exp.Unix()})
+	if err != nil {
+		return "", err
+	}
+	mac := hmac.New(sha256.New, a.signingKey)
+	mac.Write(data)
+	return base64.RawURLEncoding.EncodeToString(data) + "." +
+		base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+}
+
+// accessValid prüft Signatur und Ablaufdatum eines Zugangs-Cookie-Werts.
+func (a *Auth) accessValid(v string) bool {
+	parts := strings.SplitN(v, ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	data, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return false
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, a.signingKey)
+	mac.Write(data)
+	if !hmac.Equal(sig, mac.Sum(nil)) {
+		return false
+	}
+	var p accessPayload
+	if err := json.Unmarshal(data, &p); err != nil {
+		return false
+	}
+	return time.Now().Unix() < p.Exp
+}
+
+// pwBlocked liefert die Restzeit einer IP-Sperre (0 = Eingaben erlaubt).
+func (a *Auth) pwBlocked(ip string) time.Duration {
+	a.pwMu.Lock()
+	defer a.pwMu.Unlock()
+	c := a.pwAttempts[ip]
+	if c == nil {
+		return 0
+	}
+	if c.fails >= pwMaxFails {
+		if rest := time.Until(c.until); rest > 0 {
+			return rest
+		}
+	}
+	if time.Now().After(c.until) {
+		delete(a.pwAttempts, ip) // Fenster vorbei: wieder bei Null zählen
+	}
+	return 0
+}
+
+// pwFail zählt einen Fehlversuch; true = die IP ist damit (weiterhin)
+// über dem Limit.
+func (a *Auth) pwFail(ip string) bool {
+	a.pwMu.Lock()
+	defer a.pwMu.Unlock()
+	if len(a.pwAttempts) > 4096 {
+		a.pwAttempts = map[string]*pwCounter{} // Notbremse gegen Map-Wachstum
+	}
+	c := a.pwAttempts[ip]
+	if c == nil || time.Now().After(c.until) {
+		c = &pwCounter{until: time.Now().Add(pwBlockTime)}
+		a.pwAttempts[ip] = c
+	}
+	c.fails++
+	return c.fails >= pwMaxFails
+}
+
+// pwReset vergisst Zähler und Sperre einer IP (nach erfolgreichem Login).
+func (a *Auth) pwReset(ip string) {
+	a.pwMu.Lock()
+	defer a.pwMu.Unlock()
+	delete(a.pwAttempts, ip)
+}
+
+// clientIP ist die Gegenstelle für die Fehlversuchs-Zählung.
+// X-Forwarded-For wird bewusst nicht geglaubt: Die App läuft ohne
+// Reverse Proxy (TLS-Terminierung in der App), RemoteAddr ist der Client.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// accessForm zeigt das Eingabefeld (GET /access). Ohne konfiguriertes
+// Passwort gibt es hier nichts – zurück zur (offenen) Live-Ansicht.
+func (a *Auth) accessForm(w http.ResponseWriter, r *http.Request) {
+	if a.accessPass == nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	a.accessPage(w, http.StatusOK, "", sanitizeNext(r.URL.Query().Get("next")))
+}
+
+// accessSubmit prüft das eingegebene Passwort: richtig → signiertes
+// Zugangs-Cookie + weiter zur gewünschten Seite; falsch → 401, nach
+// pwMaxFails Fehlversuchen pro IP 429 ohne Vergleich.
+func (a *Auth) accessSubmit(w http.ResponseWriter, r *http.Request) {
+	if a.accessPass == nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		a.errorPage(w, http.StatusBadRequest, "Zugang fehlgeschlagen", "Ungültige Anfrage.")
+		return
+	}
+	next := sanitizeNext(r.Form.Get("next"))
+	ip := clientIP(r)
+	if wait := a.pwBlocked(ip); wait > 0 {
+		a.accessPage(w, http.StatusTooManyRequests,
+			fmt.Sprintf("Zu viele Fehlversuche – bitte %d Sek. warten.",
+				int(wait.Seconds())+1), next)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(r.Form.Get("password")), a.accessPass) == 1 {
+		a.pwReset(ip)
+		v, err := a.signAccess(time.Now().Add(a.sessionTTL))
+		if err != nil {
+			a.serverError(w, err)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name: accessCookie, Value: v,
+			Path: "/", MaxAge: int(a.sessionTTL.Seconds()),
+			HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: a.secure,
+		})
+		log.Printf("Zugangs-Passwort akzeptiert (Lese-Zugang, IP %s)", ip)
+		http.Redirect(w, r, next, http.StatusSeeOther)
+		return
+	}
+	blocked := a.pwFail(ip)
+	log.Printf("Zugangs-Passwort falsch (IP %s)", ip)
+	msg := "Passwort falsch."
+	if blocked {
+		msg = "Passwort falsch – und damit zu viele Fehlversuche: 60 Sek. Pause."
+	}
+	a.accessPage(w, http.StatusUnauthorized, msg, next)
+}
+
+// accessPage rendert das minimalistische Passwort-Formular – wie die
+// errorPage ohne Base-Template, damit es auch vor jedem Login trägt.
+func (a *Auth) accessPage(w http.ResponseWriter, status int, msg, next string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	fehler := ""
+	if msg != "" {
+		fehler = `<p class="auth-fail">` + template.HTMLEscapeString(msg) + `</p>`
+	}
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>turnier · Zugang</title>
+<link rel="icon" type="image/svg+xml" href="/static/garde-icon.svg">
+<link rel="icon" type="image/png" href="/static/garde-icon.png">
+<link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div class="wrap auth-error">
+  <div class="card">
+    <h1>Zugang</h1>
+    %s
+    <p>Diese Turnier-Ansicht ist passwortgeschützt. Das Passwort öffnet die
+       reine Lese-Ansicht – zum Bewerten oder Verwalten bitte zusätzlich am
+       Login-Anbieter anmelden.</p>
+    <form method="post" action="/access">
+      <input type="hidden" name="next" value="%s">
+      <input type="password" name="password" placeholder="Zugangspasswort"
+             autocomplete="current-password" autofocus>
+      <button class="btn primary" type="submit">Anzeigen</button>
+    </form>
+  </div>
+</div>
+</body></html>`, fehler, template.HTMLEscapeString(next))
 }
 
 // ---------- Fehlerseiten ----------

@@ -36,7 +36,10 @@ func newTestApp(t *testing.T, cfg AuthConfig) (*App, *store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	if cfg.Issuer == "" && cfg.OAuth2BaseURL == "" {
+	// Ohne Password wird der Test-Identifier eingefügt; eine reine
+	// Passwort-Konfiguration bleibt providerlos – wie der Offline-Start
+	// auf dem Messe-PC (-password ohne oidc-*/oauth2-* Flags).
+	if cfg.Issuer == "" && cfg.OAuth2BaseURL == "" && cfg.Password == "" {
 		cfg.Issuer = "https://idp.test"
 	}
 	if cfg.ClientID == "" {
