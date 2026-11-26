@@ -570,11 +570,13 @@ td .total-val { font-size: 18px; font-weight: 800; }
   gap: 16px;
   align-items: start;
 }
-/* Teilnehmer-Liste: eine Flex-Reihe pro Teilnehmer. Names-/Verein-Felder
-   bekommen .grow (Basis 180 px) und stapeln damit auf schmalen Bildschirmen
-   vollbreit untereinander – auf breiten bleiben sie nebeneinander und sind
-   deutlich breiter als die alten Tabellenzellen. Kein horizontales
-   Scrollen mehr nötig. */
+/* Teilnehmer-Liste: pro Teilnehmer eine Flex-Reihe mit Zeilenumbrüchen.
+   Erste Zeile: Startnummer, Stern-/Zurückgezogen-Häkchen und der komplette
+   Button-Cluster (✓ ↑ ↓ ✕). Name und Verein erhalten flex:1 1 100% plus
+   order, wodurch sie immer unter die erste Zeile rutschen und vollbreit
+   sind. Die Formulare (update + move/delete) sind per display:contents
+   entpackt – sie bleiben DOM-seitig getrennt (keine verschachtelten
+   Formulare), bilden aber eine gemeinsame Flex-Zeile. */
 .part-row {
   display: flex;
   flex-wrap: wrap;
@@ -583,29 +585,22 @@ td .total-val { font-size: 18px; font-weight: 800; }
   padding: 9px 0;
 }
 .part-row + .part-row { border-top: 1px solid var(--line); }
-.part-num {
-  font-size: 12px;
-  color: var(--muted);
-  min-width: 16px;
-  text-align: right;
-}
-.part-fields {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  flex: 1 1 280px;
-  min-width: 0;
-}
-.part-fields input[type=text] {
+.pf { display: contents; }
+.pf input[type=text] {
   font-size: 16px;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   min-width: 0;
 }
-.part-fields input.grow { flex: 1 1 180px; }
-.part-start { flex: 0 0 56px; }
+.part-num {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 16px;
+  text-align: right;
+}
+.part-start { flex: 0 1 60px; }
+.part-text { flex: 1 1 100%; order: 5; }
 .part-flag {
   display: inline-flex;
   align-items: center;
@@ -760,7 +755,7 @@ legend { font-size: 13px; font-weight: 700; color: var(--muted); padding: 0 6px;
   .btn.small { min-height: 40px; }
   .topbar .navlinks a, .topbar .linkbtn { padding: 10px 12px; }
   .row-form input[type=text], .row-form input[type=number] { min-height: 44px; }
-  .part-fields input[type=text] { min-height: 40px; }
+  .pf input[type=text] { min-height: 40px; }
   .part-flag input[type=checkbox],
   .row-form input[type=checkbox] { width: 24px; height: 24px; }
 }

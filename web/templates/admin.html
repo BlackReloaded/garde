@@ -268,15 +268,15 @@
         <div class="part-list">
           {{range .Parts}}
           <div class="part-row">
-            <span class="part-num">{{.SortOrder}}</span>
-            <form class="part-fields" hx-post="/admin/part/update" hx-target="body" hx-swap="outerHTML">
+            <form class="pf" hx-post="/admin/part/update" hx-target="body" hx-swap="outerHTML">
               <input type="hidden" name="id" value="{{.ID}}">
+              <span class="part-num">{{.SortOrder}}</span>
               <input type="text" name="start_nr" value="{{.StartNr}}" class="part-start" title="Startnummer">
-              <input type="text" name="name" value="{{.Name}}" class="grow{{if .Withdrawn}} withdrawn-name{{end}}" placeholder="Name / Gruppe">
-              <input type="text" name="verein" value="{{.Verein}}" class="grow" placeholder="Verein">
               <label class="part-flag"><input type="checkbox" name="starred" {{if .Starred}}checked{{end}}> Stern</label>
               <label class="part-flag"><input type="checkbox" name="withdrawn" {{if .Withdrawn}}checked{{end}}> Zurückgez.</label>
               <button class="btn small" type="submit" title="Änderungen speichern">✓</button>
+              <input type="text" name="name" value="{{.Name}}" class="part-text{{if .Withdrawn}} withdrawn-name{{end}}" placeholder="Name / Gruppe">
+              <input type="text" name="verein" value="{{.Verein}}" class="part-text" placeholder="Verein">
             </form>
             <span class="part-actions">
               <form hx-post="/admin/part/move" hx-target="body" hx-swap="outerHTML">
