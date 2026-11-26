@@ -570,20 +570,61 @@ td .total-val { font-size: 18px; font-weight: 800; }
   gap: 16px;
   align-items: start;
 }
-.admin-table { min-width: 720px; }
-.admin-table input[type=text] {
-  width: 100%;
+/* Teilnehmer-Liste: eine Flex-Reihe pro Teilnehmer. Names-/Verein-Felder
+   bekommen .grow (Basis 180 px) und stapeln damit auf schmalen Bildschirmen
+   vollbreit untereinander – auf breiten bleiben sie nebeneinander und sind
+   deutlich breiter als die alten Tabellenzellen. Kein horizontales
+   Scrollen mehr nötig. */
+.part-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 9px 0;
+}
+.part-row + .part-row { border-top: 1px solid var(--line); }
+.part-num {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 16px;
+  text-align: right;
+}
+.part-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.part-fields input[type=text] {
   font-size: 16px;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   min-width: 0;
 }
-.admin-table input[type=checkbox] {
+.part-fields input.grow { flex: 1 1 180px; }
+.part-start { flex: 0 0 56px; }
+.part-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.part-flag input[type=checkbox] {
   width: 20px;
   height: 20px;
   accent-color: var(--accent);
 }
+.part-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.part-actions form { display: inline-flex; }
 
 .btn {
   display: inline-flex;
@@ -719,8 +760,8 @@ legend { font-size: 13px; font-weight: 700; color: var(--muted); padding: 0 6px;
   .btn.small { min-height: 40px; }
   .topbar .navlinks a, .topbar .linkbtn { padding: 10px 12px; }
   .row-form input[type=text], .row-form input[type=number] { min-height: 44px; }
-  .admin-table input[type=text] { min-height: 40px; }
-  .admin-table input[type=checkbox],
+  .part-fields input[type=text] { min-height: 40px; }
+  .part-flag input[type=checkbox],
   .row-form input[type=checkbox] { width: 24px; height: 24px; }
 }
 

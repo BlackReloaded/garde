@@ -265,50 +265,40 @@
           <label style="font-size:13px"><input type="checkbox" name="starred"> Stern</label>
           <button class="btn primary" type="submit">Hinzufügen</button>
         </form>
-        <div class="table-wrap">
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th>#</th><th>Start</th><th>Name</th><th>Verein</th>
-              <th class="num">Stern</th><th class="num">Zurückgez.</th><th>Speichern</th><th>Bewegen/Löschen</th>
-            </tr>
-          </thead>
-          <tbody>
+        <div class="part-list">
           {{range .Parts}}
-          <tr>
-            <td class="num">{{.SortOrder}}</td>
-            <form style="display:contents" hx-post="/admin/part/update" hx-target="body" hx-swap="outerHTML">
+          <div class="part-row">
+            <span class="part-num">{{.SortOrder}}</span>
+            <form class="part-fields" hx-post="/admin/part/update" hx-target="body" hx-swap="outerHTML">
               <input type="hidden" name="id" value="{{.ID}}">
-              <td><input type="text" name="start_nr" value="{{.StartNr}}" size="4"></td>
-              <td><input type="text" name="name" value="{{.Name}}" {{if .Withdrawn}}class="withdrawn-name"{{end}}></td>
-              <td><input type="text" name="verein" value="{{.Verein}}"></td>
-              <td class="num"><input type="checkbox" name="starred" {{if .Starred}}checked{{end}}></td>
-              <td class="num"><input type="checkbox" name="withdrawn" {{if .Withdrawn}}checked{{end}}></td>
-              <td><button class="btn small" type="submit">✓</button></td>
-              <td>
-                <span class="inline-form" style="white-space:nowrap">
-                  <form hx-post="/admin/part/move" hx-target="body" hx-swap="outerHTML">
-                    <input type="hidden" name="id" value="{{.ID}}">
-                    <input type="hidden" name="dir" value="-1">
-                    <button class="btn small" type="submit" title="Höher">↑</button>
-                  </form>
-                  <form hx-post="/admin/part/move" hx-target="body" hx-swap="outerHTML">
-                    <input type="hidden" name="id" value="{{.ID}}">
-                    <input type="hidden" name="dir" value="1">
-                    <button class="btn small" type="submit" title="Tiefer">↓</button>
-                  </form>
-                  <form hx-post="/admin/part/delete" hx-target="body" hx-swap="outerHTML"
-                    hx-confirm="'{{.Name}}' löschen (inkl. Noten)?">
-                    <input type="hidden" name="id" value="{{.ID}}">
-                    <button class="btn small danger" type="submit">✕</button>
-                  </form>
-                </span>
-              </td>
+              <input type="text" name="start_nr" value="{{.StartNr}}" class="part-start" title="Startnummer">
+              <input type="text" name="name" value="{{.Name}}" class="grow{{if .Withdrawn}} withdrawn-name{{end}}" placeholder="Name / Gruppe">
+              <input type="text" name="verein" value="{{.Verein}}" class="grow" placeholder="Verein">
+              <label class="part-flag"><input type="checkbox" name="starred" {{if .Starred}}checked{{end}}> Stern</label>
+              <label class="part-flag"><input type="checkbox" name="withdrawn" {{if .Withdrawn}}checked{{end}}> Zurückgez.</label>
+              <button class="btn small" type="submit" title="Änderungen speichern">✓</button>
             </form>
-          </tr>
+            <span class="part-actions">
+              <form hx-post="/admin/part/move" hx-target="body" hx-swap="outerHTML">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <input type="hidden" name="dir" value="-1">
+                <button class="btn small" type="submit" title="Höher">↑</button>
+              </form>
+              <form hx-post="/admin/part/move" hx-target="body" hx-swap="outerHTML">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <input type="hidden" name="dir" value="1">
+                <button class="btn small" type="submit" title="Tiefer">↓</button>
+              </form>
+              <form hx-post="/admin/part/delete" hx-target="body" hx-swap="outerHTML"
+                hx-confirm="'{{.Name}}' löschen (inkl. Noten)?">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button class="btn small danger" type="submit">✕</button>
+              </form>
+            </span>
+          </div>
+          {{else}}
+          <p class="panel-hint">Noch keine Teilnehmer – oben anlegen oder CSV-Import nutzen.</p>
           {{end}}
-          </tbody>
-        </table>
         </div>
         <div style="margin-top:14px" class="danger-zone">
           <span class="inline-form">
