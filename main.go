@@ -81,8 +81,8 @@ func main() {
 		"Optional (v. a. beim ersten Start): Komma-Liste von E-Mail-Adressen, die "+
 			"beim Start als admin in die Datenbank übernommen werden – idempotent, "+
 			"entfernt nichts. Danach gilt nur die DB (Admin → Berechtigungen)")
-	sessionHours := flag.Float64("session-hours", 12,
-		"Session-Laufzeit in Stunden")
+	sessionHours := flag.Float64("session-hours", 0,
+		"Session-/Cookie-Laufzeit in Stunden (Standard bei 0: 6 Monate = 4320)")
 	password := flag.String("password", os.Getenv("TURNIER_PASSWORD"),
 		"Allgemeines Zugangs-Passwort (auch über Env TURNIER_PASSWORD). Wenn "+
 			"gesetzt, öffnet die Live-Ansicht erst nach Eingabe des Passworts "+

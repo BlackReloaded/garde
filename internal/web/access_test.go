@@ -10,11 +10,13 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"turnier/internal/model"
+	"turnier/internal/store"
 )
 
 // postAccess schickt das Passwort-Formular (_like_ ein Browser nach
@@ -334,5 +336,201 @@ func TestScorePasswordOnly(t *testing.T) {
 	if res = postScore(mux, accessCookieVal(res)); res.StatusCode != http.StatusOK {
 		t.Fatalf("POST /score mit Bewerten-Cookie: Status %d, wollte 200",
 			res.StatusCode)
+	}
+}
+
+// joinOpen öffnet einen /join/-Link und liefert die Antwort.
+func joinOpen(mux http.Handler, path string) *http.Response {
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+	return w.Result()
+}
+
+// TestJoinLinks: die Token-Links öffnen denselben Zugang wie die
+// Passwörter (Lese-Link ohne, Bewerten-Link mit Noteneingabe); unbekannte
+// Tokens laufen aufs Zugangsformular, ohne ein Cookie zu setzen.
+func TestJoinLinks(t *testing.T) {
+	app, st := newTestApp(t, AuthConfig{Password: "geheim", ScorePassword: "bewerten"})
+	seedLive(t, st)
+	mux := app.Handler()
+
+	// Wilder Token: kein Zugang, kein Cookie – Richtung Zugangsformular.
+	res := joinOpen(mux, "/join/000000000000000")
+	if res.StatusCode != http.StatusSeeOther ||
+		!strings.HasPrefix(res.Header.Get("Location"), "/access") ||
+		accessCookieVal(res) != "" {
+		t.Fatalf("wilder Token: Status %d Location %q",
+			res.StatusCode, res.Header.Get("Location"))
+	}
+
+	res = joinOpen(mux, "/join/"+app.auth.joinToken("read"))
+	readVal := accessCookieVal(res)
+	res = joinOpen(mux, "/join/"+app.auth.joinToken("score"))
+	scoreVal := accessCookieVal(res)
+	if readVal == "" || scoreVal == "" || readVal == scoreVal {
+		t.Fatalf("Link-Cookies fehlen oder gleich: %q / %q", readVal, scoreVal)
+	}
+
+	// Wie beim Formulartest: nur das Bewerten-Cookie darf eintragen.
+	if res = postScore(mux, readVal); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST /score mit Lese-Link-Cookie: Status %d", res.StatusCode)
+	}
+	if res = postScore(mux, scoreVal); res.StatusCode != http.StatusOK {
+		t.Fatalf("POST /score mit Bewerten-Link-Cookie: Status %d, wollte 200",
+			res.StatusCode)
+	}
+
+	// Abgelaufener Link (Payload wie signiert, aber Exp in der Vergangenheit)
+	// wäre durch die Signatur zwar "echt", muss aber am Ablaufdatum scheitern.
+	expired, err := app.auth.signAccess(time.Now().Add(-time.Minute), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res = postScore(mux, expired); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST /score mit abgelaufenem Cookie: Status %d", res.StatusCode)
+	}
+}
+
+// TestJoinLinksInAdmin: der Admin-Bereich zeigt beide Zugangs-Links mit
+// klickbarem/vollständigem URL (Host aus dem Request), ohne dass das
+// Passwort irgendwo auftaucht.
+func TestJoinLinksInAdmin(t *testing.T) {
+	app, st := newTestApp(t, AuthConfig{Password: "leseXYZ77", ScorePassword: "scoreXYZ99"})
+	giveRole(t, st, model.RoleAdmin, "boss@x.de")
+	uid, err := st.UpsertLoginUser(model.LoginUser{
+		Provider: "p", ProviderSub: "b", Email: "boss@x.de", Name: "Boss",
+		Role: model.RoleAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateLoginSession("tok-admin", uid, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	mux := app.Handler()
+
+	req := httptest.NewRequest("GET", "/admin", nil)
+	req.Host = "turnier.example.de"
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "tok-admin"})
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	body := w.Body.String()
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /admin: Status %d", w.Code)
+	}
+	for _, want := range []string{
+		"Zugangs-Links",
+		"http://turnier.example.de/join/" + app.auth.joinToken("read"),
+		"http://turnier.example.de/join/" + app.auth.joinToken("score"),
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("Admin-Seite enthält nicht: %q", want)
+		}
+	}
+	if strings.Contains(body, "leseXYZ77") || strings.Contains(body, "scoreXYZ99") {
+		t.Fatal("Passwörter dürfen nicht in der Admin-Seite stehen")
+	}
+}
+
+// TestJoinSecretsPersist: Signier-Key und Zugangs-Tokens liegen in der DB.
+// Eine zweite Auth auf derselben DB (der Fall „Neustart") erkennt alte
+// Zugangs-Cookies wieder und zeigt dieselben Links; nach RotateJoinSecrets
+// ist beides widerrufen.
+func TestJoinSecretsPersist(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "persist.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cfg := AuthConfig{Password: "geheim", ScorePassword: "bewerten"}
+	a1, err := NewAuth(st, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRead, oldScore := a1.joinToken("read"), a1.joinToken("score")
+	if oldRead == "" || oldScore == "" || oldRead == oldScore {
+		t.Fatalf("Token fehlen oder gleich: %q / %q", oldRead, oldScore)
+	}
+	cookie, err := a1.signAccess(time.Now().Add(time.Hour), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// „Neustart": neue Auth, gleiche DB – Tokens und Signierschlüssel
+	// kommen aus der Datenbank zurück.
+	a2, err := NewAuth(st, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a2.joinToken("read") != oldRead || a2.joinToken("score") != oldScore {
+		t.Fatal("Zugangs-Tokens nicht über die DB persistiert")
+	}
+	if _, ok := a2.validAccess(cookie); !ok {
+		t.Fatal("altes Zugangs-Cookie nach Neustart ungültig")
+	}
+
+	// Widerruf (Admin-Knopf) wirkt über die DB: Tokens und Key sind neu.
+	if err := a1.RotateJoinSecrets(); err != nil {
+		t.Fatal(err)
+	}
+	a3, err := NewAuth(st, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a3.joinToken("read") == oldRead || a3.joinToken("score") == oldScore ||
+		a3.joinToken("read") == "" {
+		t.Fatal("Tokens nach Widerruf nicht erneuert")
+	}
+	if _, ok := a3.validAccess(cookie); ok {
+		t.Fatal("altes Zugangs-Cookie nach Widerruf noch gültig")
+	}
+}
+
+// TestJoinRotateRoute: Der Widerrufsknopf funktioniert nur mit Admin-
+// Session; danach ist der alte Link tot und der neue öffnet die Ansicht.
+func TestJoinRotateRoute(t *testing.T) {
+	app, st := newTestApp(t, AuthConfig{Password: "geheim", ScorePassword: "bewerten"})
+	seedLive(t, st)
+	giveRole(t, st, model.RoleAdmin, "boss@x.de")
+	uid, err := st.UpsertLoginUser(model.LoginUser{
+		Provider: "p", ProviderSub: "b", Email: "boss@x.de", Name: "Boss",
+		Role: model.RoleAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateLoginSession("tok-rot", uid, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	mux := app.Handler()
+
+	adminPost := func(path, cookie string) *http.Response {
+		req := httptest.NewRequest("POST", path, nil)
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		}
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w.Result()
+	}
+
+	old := app.auth.joinToken("read")
+	// Anonymous darf nicht widerrufen; Token bleibt, wie er ist.
+	if res := adminPost("/admin/join/rotate", ""); res.StatusCode != http.StatusSeeOther ||
+		app.auth.joinToken("read") != old {
+		t.Fatalf("anonymer Widerruf: Status %d", res.StatusCode)
+	}
+	// Mit Admin-Session: Widerruf läuft durch …
+	if res := adminPost("/admin/join/rotate", "tok-rot"); res.StatusCode != http.StatusOK {
+		t.Fatalf("Widerruf als Admin: Status %d", res.StatusCode)
+	}
+	after := app.auth.joinToken("read")
+	if after == "" || after == old {
+		t.Fatal("Token nicht erneuert")
+	}
+	// … der alte Link ist tot, der neue setzt ein Cookie.
+	if res := joinOpen(mux, "/join/"+old); accessCookieVal(res) != "" {
+		t.Fatal("alter Link gewährt noch Zugang")
+	}
+	if res := joinOpen(mux, "/join/"+after); accessCookieVal(res) == "" {
+		t.Fatal("neuer Link gewährt keinen Zugang")
 	}
 }

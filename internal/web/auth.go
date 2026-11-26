@@ -19,7 +19,10 @@
 // OAuth geht also immer direkt auf der ersten Seite. Bewerten per Login
 // braucht weiterhin den Rollen-Eintrag in der DB; Admin geht nur per Login.
 // Das Bewertungs-Passwort ist ein geteilter Zugang: Die Richter-Nummer
-// kommt aus dem Formular, die Identität bleibt unbekannt.
+// kommt aus dem Formular, die Identität bleibt unbekannt. Beide Passwörter
+// gibt es auch als fertigen Link (/join/<token>, angezeigt im Admin-
+// Bereich) – er wirkt wie die Passworteingabe, ohne das Passwort in einer
+// URL zu zeigen.
 //
 // Rollen werden über die Datenbank-Tabelle login_role vergeben (einzige
 // Quelle): Einträge legt der Admin in der Admin-UI an; beim Start werden
@@ -52,6 +55,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -84,7 +88,7 @@ type AuthConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string        // muss exakt im Provider registriert sein
-	SessionTTL   time.Duration // Laufzeit der Session (Default 12 h)
+	SessionTTL   time.Duration // Login-Sessions + Zugangs-Cookies (Default 6 Monate, s. -session-hours)
 
 	Password string // Allgemeines Zugangs-Passwort (nur Lese-Zugang, s. oben)
 
@@ -105,8 +109,17 @@ type Auth struct {
 	redirectURL  string
 	secure       bool // Secure-Cookie, wenn der Provider per HTTPS aufgerufen wird
 	sessionTTL   time.Duration
-	signingKey   []byte // nur im Speicher: signiert State- und Zugangs-Cookies
 	conf         *oauth2.Config
+
+	// creds bündelt die langlebigen, in der DB gespeicherten Zugangs-
+	// Geheimnisse: Signier-Key (signiert State- und Zugangs-Cookies) und
+	// je Kategorie einen Zugangs-Link-Token. Dadurch überstehen Cookies
+	// und Links Neustarts – die DB-Datei ist damit sensitiv wie ein
+	// Passwort (lokal halten, nicht in Backups mit Dritten teilen). Ein
+	// einmal gespeicherter Stand wird nie verändert, außer über „Zugänge
+	// widerrufen" im Admin-Bereich (RotateJoinSecrets): danach sind alle
+	// alten Zugangs-Cookies und Links ungültig.
+	creds atomic.Pointer[credSet]
 
 	// Zugangs-Passwörter (-password, -score-password): wenn gesetzt,
 	// brauchen anonyme Requests ein gültiges access-Cookie für die
@@ -151,7 +164,9 @@ func NewAuth(st *store.Store, cfg AuthConfig) (*Auth, error) {
 		return nil, errors.New("Login: ClientID und RedirectURL sind Pflicht")
 	}
 	if cfg.SessionTTL <= 0 {
-		cfg.SessionTTL = 12 * time.Hour
+		// Default: 6 Monate (180 Tage) – Zugangs-Cookies sollen ein
+		// ganzes Turnier-Jahr überdauern, s. -session-hours.
+		cfg.SessionTTL = 180 * 24 * time.Hour
 	}
 	a := &Auth{
 		store:        st,
@@ -217,11 +232,14 @@ func NewAuth(st *store.Store, cfg AuthConfig) (*Auth, error) {
 			}
 		}
 	}
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		return nil, err
+	// Signier-Key + Zugangs-Link-Tokens aus der DB holen (bzw. beim ersten
+	// Start erzeugen und dort ablegen) – damit überstehen Zugangs-Cookies
+	// und Links Neustarts.
+	cs, err := a.loadCreds()
+	if err != nil {
+		return nil, fmt.Errorf("Auth-Persistenz (Signier-Key/Zugangs-Links): %w", err)
 	}
-	a.signingKey = key
+	a.creds.Store(cs)
 	return a, nil
 }
 
@@ -408,7 +426,7 @@ func (a *Auth) signPayload(p statePayload) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	mac := hmac.New(sha256.New, a.signingKey)
+	mac := hmac.New(sha256.New, a.key())
 	mac.Write(data)
 	sig := mac.Sum(nil)
 	return base64.RawURLEncoding.EncodeToString(data) + "." +
@@ -428,7 +446,7 @@ func (a *Auth) verifyPayload(v string) (*statePayload, error) {
 	if err != nil {
 		return nil, errors.New("ungültige Signatur-Kodierung")
 	}
-	mac := hmac.New(sha256.New, a.signingKey)
+	mac := hmac.New(sha256.New, a.key())
 	mac.Write(data)
 	if !hmac.Equal(sig, mac.Sum(nil)) {
 		return nil, errors.New("Signatur passt nicht")
@@ -1027,15 +1045,16 @@ type accessPayload struct {
 }
 
 // signAccess baut den Cookie-Wert (Basis64-Nutzdaten + HMAC über dem
-// Signing-Key). Ohne das Secret lässt sich kein Zugang erdenken; nach
-// einem Neustart sind alle Zugangs-Cookies pauschal ungültig (neuer
-// Key), spätestens nach SessionTTL auch vorher.
+// Signing-Key). Ohne das Secret lässt sich kein Zugang erdenken. Der Key
+// liegt in der DB (auth_secret), daher gelten Zugangs-Cookies über
+// Neustarts hinweg, spätestens bis sessionTTL abläuft oder „Zugänge
+// widerrufen" (RotateJoinSecrets) sie entwertet.
 func (a *Auth) signAccess(exp time.Time, score bool) (string, error) {
 	data, err := json.Marshal(accessPayload{Exp: exp.Unix(), Score: score})
 	if err != nil {
 		return "", err
 	}
-	mac := hmac.New(sha256.New, a.signingKey)
+	mac := hmac.New(sha256.New, a.key())
 	mac.Write(data)
 	return base64.RawURLEncoding.EncodeToString(data) + "." +
 		base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
@@ -1056,7 +1075,7 @@ func (a *Auth) validAccess(v string) (accessPayload, bool) {
 	if err != nil {
 		return accessPayload{}, false
 	}
-	mac := hmac.New(sha256.New, a.signingKey)
+	mac := hmac.New(sha256.New, a.key())
 	mac.Write(data)
 	if !hmac.Equal(sig, mac.Sum(nil)) {
 		return accessPayload{}, false
@@ -1069,6 +1088,196 @@ func (a *Auth) validAccess(v string) (accessPayload, bool) {
 		return accessPayload{}, false
 	}
 	return p, true
+}
+
+// joinToken liefert den gespeicherten Zugangs-Token einer Kategorie
+// ("" = keiner, z. B. weil das zugehörige Passwort nicht gesetzt ist).
+func (a *Auth) joinToken(scope string) string {
+	return a.creds.Load().tokens[scope]
+}
+
+// tokenEqual vergleicht Tokens konstantzeitbehaftet; ein leeren Token
+// (nie erzeugt) passt nie.
+func tokenEqual(have, want string) bool {
+	return want != "" && subtle.ConstantTimeCompare([]byte(have), []byte(want)) == 1
+}
+
+// joinLink handled GET /join/<token>: der passende Link (er steht im
+// Admin-Bereich unter „Zugangs-Links") wirkt wie die Eingabe des
+// zugehörigen Passworts – passendes Cookie setzen und zur Ziel-Seite
+// weiterleiten. Unbekannter Token führt ohne Cookie aufs Zugangsformular;
+// jeder Versuch wird geloggt. Ein Rate-Limit wäre hier nur eine
+// Selbstsperr-Falle: Der Token ist 96 Bit zufällig und nicht erratbar,
+// und wer ihn hat, braucht kein Rate-Limit.
+func (a *Auth) joinLink(w http.ResponseWriter, r *http.Request) {
+	if a.accessPass == nil && a.scorePass == nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	tok := r.PathValue("token")
+	next := sanitizeNext(r.URL.Query().Get("next"))
+	bewerten := false
+	ok := false
+	// Das Bewerten-Angebot wird zuerst geprüft: es öffnet mehr (Lesen +
+	// Bewerten) – gleiche Reihenfolge wie beim Passwortformular.
+	if a.scorePass != nil && tokenEqual(tok, a.joinToken("score")) {
+		ok, bewerten = true, true
+	} else if a.accessPass != nil && tokenEqual(tok, a.joinToken("read")) {
+		ok = true
+	}
+	if !ok {
+		log.Printf("Join-Link mit unbekanntem Token aufgerufen (IP %s)", clientIP(r))
+		http.Redirect(w, r, "/access?next="+url.QueryEscape(next),
+			http.StatusSeeOther)
+		return
+	}
+	v, err := a.signAccess(time.Now().Add(a.sessionTTL), bewerten)
+	if err != nil {
+		a.serverError(w, err)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: accessCookie, Value: v,
+		Path: "/", MaxAge: int(a.sessionTTL.Seconds()),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: a.secure,
+	})
+	what := "Lese-Zugang"
+	if bewerten {
+		what = "Bewerten"
+	}
+	log.Printf("Join-Link akzeptiert (%s, IP %s)", what, clientIP(r))
+	http.Redirect(w, r, next, http.StatusSeeOther)
+}
+
+// JoinLink ist ein fertiger Zugangs-Link für den Admin-Bereich.
+type JoinLink struct {
+	Label string
+	URL   string
+}
+
+// joinLinks baut die Zugangs-Links für die Admin-Seite (ohne gesetzte
+// Passwörter: keine). Absolute URLs mit dem Host des Requests, damit man
+// sie direkt in einen Messenger oder Ausdruck kopieren kann.
+func (a *Auth) joinLinks(r *http.Request) []JoinLink {
+	if a.accessPass == nil && a.scorePass == nil {
+		return nil
+	}
+	scheme := "http://"
+	if a.secure {
+		scheme = "https://"
+	}
+	host := r.Host
+	if host == "" {
+		host = "localhost:8080"
+	}
+	var out []JoinLink
+	if t := a.joinToken("read"); a.accessPass != nil && t != "" {
+		out = append(out, JoinLink{"Nur Lese-Ansicht", scheme + host + "/join/" + t})
+	}
+	if t := a.joinToken("score"); a.scorePass != nil && t != "" {
+		out = append(out, JoinLink{"Bewerten (Noteneingabe offen)",
+			scheme + host + "/join/" + t})
+	}
+	return out
+}
+
+// ---------- Langlebige Zugangs-Geheimnisse (in der DB gespeichert) ----------
+
+// credSet ist ein unveränderlicher Snapshot der Zugangs-Geheimnisse:
+// Signier-Key und je Zugangs-Kategorie ein Link-Token. Gelesen wird nur
+// über a.creds.Load(); Widerrufen baut komplett neuen Stand und tauscht
+// ihn atomar.
+type credSet struct {
+	key    []byte
+	tokens map[string]string
+}
+
+// key liefert den aktuellen Signier-Snapshot (State- und Zugangs-Cookies).
+func (a *Auth) key() []byte { return a.creds.Load().key }
+
+// loadCreds holt Signier-Key und Link-Tokens aus der DB; fehlt etwas
+// (erster Start mit dieser Datenbank), wird es zufällig erzeugt und
+// dort abgelegt. Key und Tokens sind reine Zufallswerte – nichts wird
+// aus einem Passwort abgeleitet.
+func (a *Auth) loadCreds() (*credSet, error) {
+	v, err := a.store.GetAuthSecret("signing_key")
+	if err != nil {
+		return nil, err
+	}
+	key, err := base64.StdEncoding.DecodeString(v)
+	if err != nil || len(key) != 32 {
+		key = make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			return nil, err
+		}
+		if err := a.store.SetAuthSecret("signing_key",
+			base64.StdEncoding.EncodeToString(key)); err != nil {
+			return nil, err
+		}
+		log.Printf("Neuer Signier-Key erzeugt und in der DB abgelegt " +
+			"(Zugangs-Cookies gelten damit über Neustarts; DB-Datei wie ein " +
+			"Passwort behandeln)")
+	}
+	toks, err := a.store.GetJoinTokens()
+	if err != nil {
+		return nil, err
+	}
+	cs := &credSet{key: key, tokens: map[string]string{}}
+	// Je gesetztem Passwort ein eigener Link-Token (Kategorie read/score).
+	if a.accessPass != nil {
+		if cs.tokens["read"], err = a.ensureJoinToken(toks, "read"); err != nil {
+			return nil, err
+		}
+	}
+	if a.scorePass != nil {
+		if cs.tokens["score"], err = a.ensureJoinToken(toks, "score"); err != nil {
+			return nil, err
+		}
+	}
+	return cs, nil
+}
+
+// ensureJoinToken liefert den gespeicherten Token der Kategorie oder
+// erzeugt einen neuen (16 URL-Zeichen, 96 Bit) und legt ihn in der DB ab.
+func (a *Auth) ensureJoinToken(have map[string]string, scope string) (string, error) {
+	if t := have[scope]; len(t) >= 16 {
+		return t, nil
+	}
+	t, err := randomURL(12)
+	if err != nil {
+		return "", err
+	}
+	return t, a.store.SetJoinToken(scope, t)
+}
+
+// RotateJoinSecrets ist der Widerruf der Zugangs-Links: neuer Signier-Key
+// plus neue Link-Tokens, beides persisted. Danach ist kein altes
+// Zugangs-Cookie mehr gültig und jeder gedruckte /join/-Link wertlos;
+// Provider-Logins (Tabelle login_session) bleiben unberührt.
+func (a *Auth) RotateJoinSecrets() error {
+	old := a.creds.Load()
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return err
+	}
+	fresh := &credSet{key: key, tokens: map[string]string{}}
+	for scope := range old.tokens {
+		t, err := randomURL(12)
+		if err != nil {
+			return err
+		}
+		if err := a.store.SetJoinToken(scope, t); err != nil {
+			return err
+		}
+		fresh.tokens[scope] = t
+	}
+	if err := a.store.SetAuthSecret("signing_key",
+		base64.StdEncoding.EncodeToString(key)); err != nil {
+		return err
+	}
+	a.creds.Store(fresh)
+	log.Printf("Zugänge widerrufen: alle Zugangs-Cookies und Zugangs-Links sind ungültig")
+	return nil
 }
 
 // pwBlocked liefert die Restzeit einer IP-Sperre (0 = Eingaben erlaubt).

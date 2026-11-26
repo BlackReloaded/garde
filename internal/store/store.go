@@ -126,6 +126,19 @@ func (s *Store) migrate() error {
 			sort_order INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_block_comp ON planned_block(competition_id)`,
+		// Langlebige Auth-Geheimnisse: Signier-Key für Zugangs-/Session-
+		// Cookies und die Zugangs-Generation (Widerruf aller Zugangs-Cookies
+		// über die Admin-UI). liegen NUR in der (lokalen) DB-Datei.
+		`CREATE TABLE IF NOT EXISTS auth_secret(
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`,
+		// Zugangs-Links /join/<token>: pro Kategorie ein langlebiger,
+		// zufälliger Token (bleibt über Neustarts gleich, widerrufbar).
+		`CREATE TABLE IF NOT EXISTS join_token(
+			scope TEXT PRIMARY KEY,
+			token TEXT NOT NULL
+		)`,
 	}
 	for _, st := range stmts {
 		if _, err := s.db.Exec(st); err != nil {
@@ -820,6 +833,55 @@ func (s *Store) RemoveLoginRole(role, email string) error {
 		return fmt.Errorf("Rollen-Eintrag %s (%s) existiert nicht", email, role)
 	}
 	return nil
+}
+
+// ---------- Auth-Persistenz (Signier-Key, Zugangs-Links) ----------
+
+// GetAuthSecret liefert den Wert eines gespeicherten Auth-Geheimnisses
+// ("" = nicht vorhanden).
+func (s *Store) GetAuthSecret(key string) (string, error) {
+	var v string
+	err := s.db.QueryRow(`SELECT value FROM auth_secret WHERE key = ?`, key).Scan(&v)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
+// SetAuthSecret speichert ein Auth-Geheimnis (überschreibt vorhandene Werte).
+func (s *Store) SetAuthSecret(key, value string) error {
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO auth_secret(key, value) VALUES(?,?)`, key, value)
+	return err
+}
+
+// GetJoinTokens liefert die gespeicherten Zugangs-Link-Tokens (scope →
+// Token); leere Map, wenn noch keiner angelegt wurde.
+func (s *Store) GetJoinTokens() (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT scope, token FROM join_token`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var sc, tok string
+		if err := rows.Scan(&sc, &tok); err != nil {
+			return nil, err
+		}
+		out[sc] = tok
+	}
+	return out, rows.Err()
+}
+
+// SetJoinToken speichert den Token einer Zugangs-Link-Kategorie.
+func (s *Store) SetJoinToken(scope, token string) error {
+	_, err := s.db.Exec(`
+		INSERT OR REPLACE INTO join_token(scope, token) VALUES(?,?)`, scope, token)
+	return err
 }
 
 // ListLoginRoles liefert alle UI-verwalteten Rollen-Einträge.

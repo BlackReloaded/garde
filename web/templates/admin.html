@@ -221,6 +221,35 @@
         {{end}}
       </div>
 
+      {{if .JoinLinks}}
+      <div class="card">
+        <h2>Zugangs-Links</h2>
+        <p class="panel-hint">
+          Zum Verteilen (Messenger, Ausdruck, QR-Tool): Wer so einen Link
+          öffnet, ist drin wie nach der Eingabe des zugehörigen Passworts –
+          das Passwort selbst steht in keiner URL. Die Links bleiben gültig
+          bis zum Widerruf (auch über Neustarts). Bitte nur dort aufhängen
+          oder zeigen, wo niemand Fremdes mitliest: Der Link ist der
+          Schlüssel.
+        </p>
+        {{range .JoinLinks}}
+        <div class="row-form">
+          <span style="font-size:12px;color:var(--muted);min-width:170px">{{.Label}}</span>
+          <input type="text" readonly value="{{.URL}}"
+            onclick="this.select();document.execCommand('copy')"
+            title="Antippen oder Klick kopiert den Link"
+            style="flex:1;min-width:240px;font-family:monospace">
+        </div>
+        {{end}}
+        <form hx-post="/admin/join/rotate" hx-target="body" hx-swap="outerHTML"
+          hx-confirm="Alle Zugangs-Links und Zugangs-Cookies widerrufen? Richter müssen sich danach neu Zugang verschaffen.">
+          <button class="btn small danger" type="submit"
+            title="Macht alle alten Links und Zugangs-Cookies ungültig; danach stehen hier frische Links">
+            Zugangs-Links widerrufen</button>
+        </form>
+      </div>
+      {{end}}
+
     </div>
     <div class="col">
 

@@ -16,6 +16,9 @@ type AdminData struct {
 	Sessions []model.Session
 	Comps    []model.Competition
 	Discs    []model.Discipline
+	// JoinLinks: fertige Zugangs-Links für die „Zugangs-Links"-Karte
+	// (nur mit gesetzten Passwörtern, s. joinLinks).
+	JoinLinks []JoinLink
 	// CompDiscs/CompBlocks: Disziplinen und eingeplante Blöcke pro
 	// Turnier der Session (für die Position-Auswahl der Blöcke).
 	CompDiscs  map[int64][]model.Discipline
@@ -34,6 +37,7 @@ type AdminData struct {
 func (a *App) adminData(r *http.Request) *AdminData {
 	s, t, d := a.resolveView(r)
 	ad := &AdminData{SessionID: s, CompID: t, DiscID: d, Auth: a.auth.authState(r)}
+	ad.JoinLinks = a.auth.joinLinks(r)
 	ad.Sessions, _ = a.store.ListSessions()
 	for _, e := range a.auth.ListRoles() {
 		if e.Role == model.RoleAdmin {
@@ -503,4 +507,20 @@ func (a *App) adminRoleRemove(w http.ResponseWriter, r *http.Request) {
 	}
 	a.respondAdmin(w, r, fmt.Sprintf("%s aus %s entfernt",
 		email, RoleLabel(role)), true)
+}
+
+// ---------- Zugangs-Links ----------
+
+// adminJoinRotate widerruft alle Zugangs-Cookies und Zugangs-Links
+// (neuer Signier-Key + neue Tokens, in der DB gespeichert). Danach sind
+// gedruckte Links und verteilte Cookies wertlos; die Seite zeigt frische
+// Links. Provider-Logins bleiben unberührt.
+func (a *App) adminJoinRotate(w http.ResponseWriter, r *http.Request) {
+	if err := a.auth.RotateJoinSecrets(); err != nil {
+		a.respondAdmin(w, r, "Widerruf fehlgeschlagen: "+err.Error(), false)
+		return
+	}
+	a.respondAdmin(w, r,
+		"Zugangs-Links widerrufen – alte Links und Cookies sind ungültig, "+
+			"die neuen Links stehen oben in der Karte", true)
 }

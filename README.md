@@ -150,7 +150,8 @@ Gemeinsam (Pflicht für beide Modi):
   beim Start als *admin* in die Datenbank übernommen werden (idempotent –
   fügt nur fehlende hinzu, entfernt nichts). Danach ist die DB die einzige
   Rollen-Quelle.
-- `-session-hours` (Default `12`): Session-Laufzeit
+- `-session-hours` (Default `0` → 6 Monate): Laufzeit von Login-Sessions und
+  Zugangs-Cookies in Stunden (z. B. `720` = 30 Tage)
 
 **Rollen liegen in der Datenbank** (Tabelle `login_role`, gefüllt über die
 Admin-UI) und werden dort gepflegt:
@@ -158,8 +159,42 @@ Admin-UI) und werden dort gepflegt:
 | Status | Rechte |
 |---|---|
 | nicht angemeldet | reines Lese-Recht: Live-Ansicht, Ranglisten, Zeitplan |
+| Zugangspasswort (`-password`) | Live-Ansicht lesen – auch wenn sie sonst geschützt wäre |
+| Bewertungs-Passwort (`-score-password`) | + Noten eintragen (`POST /score`), geteilter Zugang |
 | angemeldet (in der DB als *bewerten*) | + Noten eintragen (`POST /score`) |
 | angemeldet (in der DB als *admin*) | + kompletter Admin-Bereich |
+
+### Zugangs-Passwörter (ohne oder neben dem Provider)
+
+Es gibt zwei unabhängige Passwörter: `-password` (Env `TURNIER_PASSWORD`)
+öffnet die **Lese-Ansicht** für alle, die es kennen; `-score-password`
+(Env `TURNIER_SCORE_PASSWORD`) erlaubt nach Eingabe zusätzlich die
+**Noteneingabe** – Richter brauchen dafür kein eigenes Login-Konto
+(geteilter Zugang, die Richter-Nummer kommt aus dem Formular). Beide
+werden auf einer gemeinsamen Zugangsseite (`/access`) eingegeben; sitzt
+ein Provider-Knopf daneben, ist OAuth damit direkt auf der ersten Seite
+möglich. Ohne Provider-Flags ist mindestens ein Passwort Pflicht, sonst
+startet die App nicht; mit Provider sind Passwörter optional und setzen
+vor die Lese-Ansicht bzw. vor `/score`.
+
+Zugangs-Cookies laufen nach `-session-hours` ab (Default: 6 Monate); der
+Signatur-Schlüssel dazu liegt in der DB (Tabelle `auth_secret`), sie gelten
+daher auch über Neustarts hinweg – bis zum Ablauf oder zum Widerruf im
+Admin-Bereich. Pro IP folgen auf 5 Fehlversuche 60 s Pause. Eine gültige
+Provider-Session mit Rolle passiert alle Gates ohne Passwort-Eingabe.
+
+**Verteilen als Link statt Passwort abzutippen:** Im Admin-Bereich
+(*Zugangs-Links*) stehen für jedes gesetzte Passwort fertige Links der
+Form `GET /join/<token>` (mit Host des Aufrufs, zum Kopieren). Beim
+Öffnen setzen sie dasselbe Zugangs-Cookie wie die Passworteingabe und
+leiten auf die Live-Ansicht. Die Tokens sind Zufallswerte (96 Bit, in der
+Tabelle `join_token` gespeichert, nie aus dem Passwort abgeleitet), nur im
+geschützten Admin-Bereich sichtbar und im Request-Log maskiert. Links
+gelten bis zum Widerruf – auch über Neustarts; derselbe Karte liegt ein
+Knopf *Zugangs-Links widerrufen* bei, der alle alten Links **und** alle
+Zugangs-Cookies auf einen Schlag entwertet. Achtung: Wer den Link
+abfängt, hat damit auch Zugang – nur dort aufhängen/verteilen, wo niemand
+Fremdes mitliest; im Zweifel widerrufen.
 
 Nicht in der DB → Login wird im Callback abgewiesen (403-Seite). Die Rolle
 wird bei **jedem Request** gegen die aktuelle DB-Liste geprüft: Wird eine
@@ -210,7 +245,8 @@ Weitere Anbieter (Google, Apple, Keycloak, …) gehen später als **OIDC-Modus**
 **Offline-Verhalten:** Die App startet und die Live-Ansicht (Lese-Recht)
 funktioniert auch, wenn der Provider nicht erreichbar ist (z. B. kein
 Internet auf dem Messe-PC). Bereits eingeloggte Sessions laufen weiter
-(12 h); nur neue Logins scheitern, bis der Provider erreichbar ist.
+(Standard-Laufzeit: 6 Monate, s. `-session-hours`); nur neue Logins
+scheitern, bis der Provider erreichbar ist.
 
 **Daten laden:** Die App startet mit leerer Datenbank – es gibt **keinen
 automatischen Seed**. Auslosungslisten werden manuell per CSV-Import geladen
@@ -348,6 +384,14 @@ LoginSession (token TEXT PK, user_id FK→login_user, created_at, expires_at)
 LoginRole    (role TEXT, email TEXT, created_at; PK(role+email))
               └─ UI-verwaltete Rollen (Admin → Berechtigungen); ergänzt die
                  Start-Flags, wirkt sofort
+AuthSecret   (key TEXT PK, value TEXT)
+              └─ Signier-Schlüssel für Zugangs-Cookies (Zufallswert, beim
+                 ersten Start erzeugt; DB-Datei damit wie ein Passwort
+                 behandeln)
+JoinToken    (scope TEXT PK, token TEXT)
+              └─ je ein langlebiger Zugangs-Link-Token für Lese-/Bewerten-
+                 Zugang; Admin-Knopf „Zugangs-Links widerrufen" ersetzt
+                 Schlüssel und Tokens und entwertet alles auf einmal
 ```
 
 `Session` bezeichnet ein Jahr (eine Saison), z. B. `2026/27`.
@@ -361,10 +405,12 @@ angezeigt – und im Admin-Bereich mit Badge sichtbar.
 
 | Route | Zweck |
 |---|---|
-| `GET /` | Live-Ansicht (Session/Turnier/Disziplin via Query `s/t/d` + Cookie) – öffentlich (Lese-Recht) |
+| `GET /` | Live-Ansicht (Session/Turnier/Disziplin via Query `s/t/d` + Cookie) – offen oder (mit `-password`) hinter dem Zugangs-Passwort |
 | `GET /partials/refresh` | OOB-Partial-Updates (Status, beide Platzierungen, Zeitplan) – Polling alle 5 s; Score-Panel nur mit explizitem `sel` (wird beim Polling nicht neu gerendert, damit Fokus/Eingabe erhalten bleiben) |
-| `POST /score` | `participant_id`, `judge`, `value` (leer = Note löschen); antwortet mit OOB-Updates – **nur mit Session (Rolle bewerten/admin)** |
-| `GET /admin`, `POST /admin/*` | Verwaltung: Session/Turnier/Disziplin anlegen · umbenennen · löschen, Turnier-Startzeit, Disziplin-Zeiten, Teilnehmer (inline bearbeiten, ↑↓ verschieben, löschen), Stern/Zurückgezogen, Noten-Reset, CSV-Import/-Export – **nur mit Session (Rolle admin)** |
+| `POST /score` | `participant_id`, `judge`, `value` (leer = Note löschen); antwortet mit OOB-Updates – **nur mit Session (Rolle bewerten/admin) oder Bewertungs-Passwort-Cookie** |
+| `GET /admin`, `POST /admin/*` | Verwaltung: Session/Turnier/Disziplin anlegen · umbenennen · löschen, Turnier-Startzeit, Disziplin-Zeiten, Teilnehmer (inline bearbeiten, ↑↓ verschieben, löschen), Stern/Zurückgezogen, Noten-Reset, CSV-Import/-Export, Zugangs-Links anzeigen – **nur mit Session (Rolle admin)** |
+| `GET /access` | Zugangs-Passwort-Formular (+ OAuth-Button bei Provider) – nur mit gesetztem Passwort aktiv |
+| `GET /join/{token}` | Zugangs-Link: setzt das Zugangs-Cookie wie die Passworteingabe und leitet weiter (Token im Log maskiert, Links im Admin-Bereich) |
 | `GET /auth/login` | Login-Start (Redirect zum Provider, `next=` für Ziel-URL) |
 | `GET /auth/callback` | Callback: State (OIDC: +Nonce/PKCE) prüfen, Identität per ID-Token bzw. Profile-Endpunkt, Rolle aus Allowlist, Session-Cookie setzen |
 | `POST /auth/logout` | Session löschen (POST gegen <img>-CSRF) |
@@ -372,7 +418,8 @@ angezeigt – und im Admin-Bereich mit Badge sichtbar.
 
 Nicht angemeldet: Score-Panel zeigt nur „Nur Lese-Recht … anmelden"; der
 Admin-Link ist nur für Admins sichtbar; alle geschützten Routen leiten auf
-`/auth/login` (HTMX folgt dem Redirect).
+`/auth/login` bzw. – bei konfiguriertem Zugangs-Passwort – auf `/access`
+(HTMX folgt dem Redirect).
 
 **Score-Panel:** Zeigt standardmäßig den aktuellen Tänzer; über das Select
 können auch bereits bewertete Tänzer zum Korrigieren ausgewählt werden

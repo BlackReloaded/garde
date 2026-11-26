@@ -7,6 +7,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"strings"
 
 	"turnier/internal/model"
 	"turnier/internal/store"
@@ -69,6 +70,12 @@ func (a *App) Handler() http.Handler {
 	}))
 	mux.HandleFunc("GET /access", a.auth.accessForm)
 	mux.HandleFunc("POST /access", a.auth.accessSubmit)
+	// Zugangs-Links (/join/<token>): wirken wie die Passworteingabe, ohne
+	// dass ein Passwort in der URL steht. Der Token selbst ist damit
+	// Zugangsdatum – wer ihn abfängt, öffnet den Link ebenfalls
+	// (deshalb maskiert er im Request-Log mit, s. withLogging, und die
+	// Links stehen nur im geschützten Admin-Bereich).
+	mux.HandleFunc("GET /join/{token}", a.auth.joinLink)
 	// Ergebnisprotokoll (Wertungsheft) – je eine Disziplin und ein ganzes
 	// Turnier, jeweils auch als CSV. Lese-Recht wie die Live-Ansicht selbst,
 	// funktioniert ohne Zugangs-Passwort auch ohne jede Anmeldung.
@@ -110,6 +117,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/csv/export", admin(a.adminCSVExport))
 	mux.HandleFunc("POST /admin/role/add", admin(a.adminRoleAdd))
 	mux.HandleFunc("POST /admin/role/remove", admin(a.adminRoleRemove))
+	mux.HandleFunc("POST /admin/join/rotate", admin(a.adminJoinRotate))
 
 	mux.HandleFunc("GET /auth/login", a.auth.login)
 	mux.HandleFunc("GET /auth/callback", a.auth.callback)
@@ -130,7 +138,12 @@ func withLogging(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		log.Printf("%s %s", r.Method, r.URL.String())
+		line := r.URL.String()
+		if strings.HasPrefix(r.URL.Path, "/join/") {
+			// Der Pfad ENTHÄLT den Zugangs-Token – nicht aufs Protokoll.
+			line = "/join/…"
+		}
+		log.Printf("%s %s", r.Method, line)
 		next.ServeHTTP(w, r)
 	})
 }
