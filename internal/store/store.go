@@ -57,7 +57,8 @@ func (s *Store) migrate() error {
 			session_id INTEGER NOT NULL REFERENCES session(id) ON DELETE CASCADE,
 			name TEXT NOT NULL,
 			sort_order INTEGER NOT NULL,
-			start_at_sec INTEGER NOT NULL DEFAULT 0
+			start_at_sec INTEGER NOT NULL DEFAULT 0,
+			finished INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_comp_session ON competition(session_id)`,
 		`CREATE TABLE IF NOT EXISTS discipline(
@@ -158,6 +159,12 @@ func (s *Store) migrate() error {
 		!strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("migration: %w", err)
 	}
+	// Bestehende DBs: Read-only-Markierung "beendet" nachrüsten.
+	if _, err := s.db.Exec(
+		`ALTER TABLE competition ADD COLUMN finished INTEGER NOT NULL DEFAULT 0`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("migration: %w", err)
+	}
 	// Bestehende DBs: alte BDK-Test-Defaults (3:00 Tanz / 12:00 Punktezeit /
 	// 2:00 Aufritt = 17-Minuten-Slot) durch den 5-Minuten-Takt ersetzen.
 	// Nur Disziplinen mit den unveränderten Testwerten; bewusst angepasste
@@ -238,7 +245,7 @@ func (s *Store) DeleteSession(id int64) error {
 
 func (s *Store) ListCompetitions(sessionID int64) ([]model.Competition, error) {
 	rows, err := s.db.Query(
-		`SELECT id, session_id, name, sort_order, start_at_sec
+		`SELECT id, session_id, name, sort_order, start_at_sec, finished
 		 FROM competition WHERE session_id = ? ORDER BY sort_order, id`,
 		sessionID)
 	if err != nil {
@@ -248,9 +255,11 @@ func (s *Store) ListCompetitions(sessionID int64) ([]model.Competition, error) {
 	out := []model.Competition{}
 	for rows.Next() {
 		var c model.Competition
-		if err := rows.Scan(&c.ID, &c.SessionID, &c.Name, &c.SortOrder, &c.StartAtSec); err != nil {
+		var fin int
+		if err := rows.Scan(&c.ID, &c.SessionID, &c.Name, &c.SortOrder, &c.StartAtSec, &fin); err != nil {
 			return nil, err
 		}
+		c.Finished = fin == 1
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -258,12 +267,14 @@ func (s *Store) ListCompetitions(sessionID int64) ([]model.Competition, error) {
 
 func (s *Store) GetCompetition(id int64) (*model.Competition, error) {
 	var c model.Competition
+	var fin int
 	err := s.db.QueryRow(
-		`SELECT id, session_id, name, sort_order, start_at_sec FROM competition WHERE id = ?`,
-		id).Scan(&c.ID, &c.SessionID, &c.Name, &c.SortOrder, &c.StartAtSec)
+		`SELECT id, session_id, name, sort_order, start_at_sec, finished FROM competition WHERE id = ?`,
+		id).Scan(&c.ID, &c.SessionID, &c.Name, &c.SortOrder, &c.StartAtSec, &fin)
 	if err != nil {
 		return nil, err
 	}
+	c.Finished = fin == 1
 	return &c, nil
 }
 
@@ -298,6 +309,15 @@ func (s *Store) UpdateCompetitionStart(id int64, startAtSec int) error {
 
 func (s *Store) DeleteCompetition(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM competition WHERE id = ?`, id)
+	return err
+}
+
+// SetCompetitionFinished setzt (oder nimmt) die Read-only-Markierung
+// "beendet" eines Turniers. Solange sie gesetzt ist, blockieren die
+// Web-Handler alle Änderungen an Noten und Turnierdaten.
+func (s *Store) SetCompetitionFinished(id int64, finished bool) error {
+	_, err := s.db.Exec(`UPDATE competition SET finished = ? WHERE id = ?`,
+		boolInt(finished), id)
 	return err
 }
 

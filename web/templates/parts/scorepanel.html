@@ -1,7 +1,13 @@
 {{define "scorepanel"}}
 <div class="card scorepanel">
   <h2>Punkteeingabe</h2>
-  {{if .Auth.CanScore}}
+  {{if .CompFinished}}
+  <div class="panel-hint">
+    <b>Turnier beendet</b> – this competition is marked as read-only, so no
+    more entries are possible. Corrections are available only after lifting
+    the lock in the Admin area.
+  </div>
+  {{else if .Auth.CanScore}}
   <!-- Als Formular (change → Serialisierung), damit sel gesendet wird
        (hx-vals='{"sel": this.value}' geht in HTMX 2 verloren). -->
   <form hx-get="/partials/refresh?s={{.SessionID}}&amp;t={{.CompID}}&amp;d={{.DiscID}}"

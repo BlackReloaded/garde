@@ -32,6 +32,10 @@ type Competition struct {
 	// StartAtSec ist die geplante Startzeit des Turniers in Sekunden seit
 	// Mitternacht (0 = nicht gesetzt), z. B. 9*3600+30*60 = 09:30.
 	StartAtSec int
+	// Finished markiert das Turnier als read-only ("beendet"): Danach sind
+	// Noteneingabe und alle Bearbeitungen der Turnierdaten gesperrt –
+	// gehostet nur durch "Sperre aufheben" im Admin-Bereich.
+	Finished bool
 }
 
 // Disziplin ist eine bewertete Kategorie (z. B. "Solo weiblich", "Garde").

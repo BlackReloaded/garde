@@ -48,6 +48,19 @@
           <button class="btn primary" type="submit">Anlegen</button>
         </form>
         {{range .Comps}}
+        {{if .Finished}}
+        <div class="row-form">
+          <span class="panel-hint" style="font-size:13px">🔒 <b>{{.Name}}</b> · beendet – Eingaben &amp; Bearbeiten gesperrt</span>
+          <span class="inline-form" style="margin-left:auto;display:inline-flex;gap:6px">
+            <form hx-post="/admin/comp/finish" hx-target="body" hx-swap="outerHTML">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <input type="hidden" name="on" value="0">
+              <button class="btn small" type="submit" title="Noteneingabe und Bearbeiten wieder erlauben">Sperre aufheben</button>
+            </form>
+            <a class="btn small" href="/admin?s={{$.SessionID}}&amp;t={{.ID}}">Öffnen</a>
+          </span>
+        </div>
+        {{else}}
         <div class="row-form">
           <form class="inline-form" style="display:flex;gap:6px;flex:1;min-width:200px"
             hx-post="/admin/comp/rename" hx-target="body" hx-swap="outerHTML">
@@ -56,6 +69,14 @@
             <button class="btn small" type="submit">Umbenennen</button>
           </form>
           <a class="btn small" href="/admin?s={{$.SessionID}}&amp;t={{.ID}}">Öffnen</a>
+          <span class="inline-form">
+            <form hx-post="/admin/comp/finish" hx-target="body" hx-swap="outerHTML"
+              hx-confirm="'{{.Name}}' als beendet markieren? Danach sind Noteneingabe und alle Änderungen gesperrt (nur hier aufhebbar).">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <input type="hidden" name="on" value="1">
+              <button class="btn small" type="submit" title="Read-only: Noteneingabe und Änderungen sperren">🔒 Beenden</button>
+            </form>
+          </span>
           <span class="inline-form">
             <form hx-post="/admin/comp/delete" hx-target="body" hx-swap="outerHTML"
               hx-confirm="Turnier '{{.Name}}' inkl. Disziplinen &amp; Teilnehmer löschen?">
@@ -121,6 +142,7 @@
           </form>
         </div>
         {{end}}
+        {{end}}
         {{else}}
         <p class="panel-hint">Zuerst eine Session anlegen oder öffnen.</p>
         {{end}}
@@ -128,7 +150,9 @@
 
       <div class="card">
         <h2>Disziplinen &amp; Zeiten</h2>
-        {{if .Discs}}
+        {{if .CompFinished}}
+        <p class="panel-hint">Turnier beendet – Bearbeiten gesperrt. Zum Ändern bei den Turnieren die Sperre aufheben.</p>
+        {{else if .Discs}}
         <form class="row-form" hx-post="/admin/disc/create" hx-target="body" hx-swap="outerHTML">
           <input type="hidden" name="comp_id" value="{{.CompID}}">
           <input type="text" name="name" placeholder="Neue Disziplin (z. B. Solo weiblich) …" required style="flex:1">
@@ -256,7 +280,15 @@
       <div class="card">
         <h2>Teilnehmer
           {{if .Disc}}– {{.Disc.Name}} ({{len .Parts}}){{end}}</h2>
-        {{if .Disc}}
+        {{if .CompFinished}}
+        <p class="panel-hint">Turnier beendet – nur Leseansicht. Zum Ändern bei den Turnieren die Sperre aufheben.</p>
+        {{range .Parts}}
+        <div class="part-row" style="display:block;padding:7px 0">
+          <span style="color:var(--muted);font-size:12px">{{.SortOrder}}.</span>
+          <span{{if .Withdrawn}} class="withdrawn-name"{{end}}>{{star .Starred}} {{.StartNr}} · {{.Name}}{{if .Verein}} – {{.Verein}}{{end}}</span>
+        </div>
+        {{end}}
+        {{else if .Disc}}
         <form class="row-form" hx-post="/admin/part/create" hx-target="body" hx-swap="outerHTML">
           <input type="hidden" name="disc_id" value="{{.DiscID}}">
           <input type="text" name="start_nr" placeholder="Start" size="5" required title="Startnummer (z. B. 1 oder 001)">

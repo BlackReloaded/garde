@@ -105,6 +105,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/block/update", admin(a.adminBlockUpdate))
 	mux.HandleFunc("POST /admin/block/delete", admin(a.adminBlockDelete))
 	mux.HandleFunc("POST /admin/comp/delete", admin(a.adminCompDelete))
+	// Turniert als „beendet" markieren / Markierung aufheben (read-only).
+	mux.HandleFunc("POST /admin/comp/finish", admin(a.adminCompFinish))
 	mux.HandleFunc("POST /admin/disc/create", admin(a.adminDiscCreate))
 	mux.HandleFunc("POST /admin/disc/update", admin(a.adminDiscUpdate))
 	mux.HandleFunc("POST /admin/disc/delete", admin(a.adminDiscDelete))

@@ -30,8 +30,11 @@ type AdminData struct {
 	DiscID     int64
 	Disc       *model.Discipline
 	Parts      []model.Participant
-	Flash      string
-	FlashOK    bool
+	// CompFinished: gewähltes Turnier ist als „beendet" (read-only)
+	// markiert – Editier-Formulare werden dann ausgeblendet.
+	CompFinished bool
+	Flash        string
+	FlashOK      bool
 }
 
 func (a *App) adminData(r *http.Request) *AdminData {
@@ -60,6 +63,9 @@ func (a *App) adminData(r *http.Request) *AdminData {
 		}
 	}
 	if t != 0 {
+		if c, err := a.store.GetCompetition(t); err == nil {
+			ad.CompFinished = c.Finished
+		}
 		ad.Discs, _ = a.store.ListDisciplines(t)
 		if d != 0 {
 			ad.Disc, _ = a.store.GetDisciplineFull(d)
@@ -86,6 +92,32 @@ func (a *App) respondAdmin(w http.ResponseWriter, r *http.Request, flash string,
 
 func (a *App) adminPage(w http.ResponseWriter, r *http.Request) {
 	a.renderAdmin(w, r, a.adminData(r))
+}
+
+// ---------- Read-only-Sperre („Turnier beendet") ----------
+
+// compLocked prüft die Read-only-Markierung des Turniers. Ist es als
+// „beendet" markiert, wird die Ablehnung bereits geantwortet und true
+// geliefert – der aufrufende Handler bricht dann ab. Nicht vorhandenes
+// Turnier liefert false (die Handler laufen in ihre eigene Fehlerbehandlung).
+func (a *App) compLocked(w http.ResponseWriter, r *http.Request, compID int64) bool {
+	c, err := a.store.GetCompetition(compID)
+	if err != nil || !c.Finished {
+		return false
+	}
+	a.respondAdmin(w, r,
+		"Turnier „"+c.Name+"“ ist beendet – Änderungen gesperrt. "+
+			"Zum Bearbeiten die Markierung bei den Turnieren aufheben.", false)
+	return true
+}
+
+// discLocked: derselbe Check über die Disziplin (Teilnehmer, Noten-Reset).
+func (a *App) discLocked(w http.ResponseWriter, r *http.Request, discID int64) bool {
+	d, err := a.store.GetDiscipline(discID)
+	if err != nil {
+		return false
+	}
+	return a.compLocked(w, r, d.CompetitionID)
 }
 
 // ---------- Session ----------
@@ -159,6 +191,9 @@ func (a *App) adminCompRename(w http.ResponseWriter, r *http.Request) {
 		a.respondAdmin(w, r, "id und name sind Pflicht", false)
 		return
 	}
+	if a.compLocked(w, r, id) {
+		return
+	}
 	if err := a.store.RenameCompetition(id, name); err != nil {
 		a.respondAdmin(w, r, err.Error(), false)
 		return
@@ -170,6 +205,9 @@ func (a *App) adminCompDelete(w http.ResponseWriter, r *http.Request) {
 	id := parseID(r.FormValue("id"))
 	if id == 0 {
 		a.respondAdmin(w, r, "id fehlt", false)
+		return
+	}
+	if a.compLocked(w, r, id) {
 		return
 	}
 	if err := a.store.DeleteCompetition(id); err != nil {
@@ -187,6 +225,9 @@ func (a *App) adminCompTimes(w http.ResponseWriter, r *http.Request) {
 		a.respondAdmin(w, r, "id fehlt", false)
 		return
 	}
+	if a.compLocked(w, r, id) {
+		return
+	}
 	startAt := 0
 	if v := strings.TrimSpace(r.FormValue("start_at")); v != "" {
 		tt, err := time.Parse("15:04", v)
@@ -201,6 +242,29 @@ func (a *App) adminCompTimes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.respondAdmin(w, r, "Turnier-Zeiten gespeichert", true)
+}
+
+// adminCompFinish setzt die Read-only-Markierung „beendet"
+// (POST /admin/comp/finish, on=1 → sperren, sonst entsperren). Sie ist der
+// einzige Weg, an ein gesperrtes Turnier heranzukommen – bewusst nur im
+// Admin-Bereich, damit "niemand mehr Änderungen vornehmen kann".
+func (a *App) adminCompFinish(w http.ResponseWriter, r *http.Request) {
+	id := parseID(r.FormValue("id"))
+	if id == 0 {
+		a.respondAdmin(w, r, "id fehlt", false)
+		return
+	}
+	on := r.FormValue("on") == "1"
+	if err := a.store.SetCompetitionFinished(id, on); err != nil {
+		a.respondAdmin(w, r, err.Error(), false)
+		return
+	}
+	if on {
+		a.respondAdmin(w, r,
+			"Turnier beendet – Noteneingabe und Änderungen sind gesperrt", true)
+	} else {
+		a.respondAdmin(w, r, "Turnier wieder editierbar", true)
+	}
 }
 
 // ---------- Geplante Blöcke (Mittagspause, Siegerehrung, …) ----------
@@ -233,6 +297,9 @@ func (a *App) adminBlockCreate(w http.ResponseWriter, r *http.Request) {
 		a.respondAdmin(w, r, "Bitte zuerst ein Turnier anlegen", false)
 		return
 	}
+	if a.compLocked(w, r, compID) {
+		return
+	}
 	if !ok {
 		a.respondAdmin(w, r, "Name, Position und Dauer (mindestens 1 Minute) sind Pflicht", false)
 		return
@@ -261,6 +328,9 @@ func (a *App) adminBlockUpdate(w http.ResponseWriter, r *http.Request) {
 		a.respondAdmin(w, r, "Block nicht gefunden", false)
 		return
 	}
+	if a.compLocked(w, r, b.CompetitionID) {
+		return
+	}
 	name, position, durMin, ok := blockFormVals(r)
 	if !ok {
 		a.respondAdmin(w, r, "Name, Position und Dauer (mindestens 1 Minute) sind Pflicht", false)
@@ -283,6 +353,9 @@ func (a *App) adminBlockDelete(w http.ResponseWriter, r *http.Request) {
 		a.respondAdmin(w, r, "id fehlt", false)
 		return
 	}
+	if b, err := a.store.GetPlannedBlock(id); err == nil && a.compLocked(w, r, b.CompetitionID) {
+		return
+	}
 	if err := a.store.DeletePlannedBlock(id); err != nil {
 		a.respondAdmin(w, r, err.Error(), false)
 		return
@@ -300,6 +373,9 @@ func (a *App) adminDiscCreate(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	if compID == 0 || name == "" {
 		a.respondAdmin(w, r, "Name ist Pflicht", false)
+		return
+	}
+	if a.compLocked(w, r, compID) {
 		return
 	}
 	id, err := a.store.CreateDiscipline(compID, model.Discipline{Name: name})
@@ -322,6 +398,9 @@ func (a *App) adminDiscUpdate(w http.ResponseWriter, r *http.Request) {
 		a.respondAdmin(w, r, err.Error(), false)
 		return
 	}
+	if a.compLocked(w, r, d.CompetitionID) {
+		return
+	}
 	d.Name = strings.TrimSpace(r.FormValue("name"))
 	d.MaxDanceSec = formInt(r, "max_dance_sec", d.MaxDanceSec)
 	d.ScoringDefSec = formInt(r, "scoring_def_sec", d.ScoringDefSec)
@@ -342,6 +421,9 @@ func (a *App) adminDiscDelete(w http.ResponseWriter, r *http.Request) {
 	id := parseID(r.FormValue("id"))
 	if id == 0 {
 		a.respondAdmin(w, r, "id fehlt", false)
+		return
+	}
+	if d, err := a.store.GetDiscipline(id); err == nil && a.compLocked(w, r, d.CompetitionID) {
 		return
 	}
 	if err := a.store.DeleteDiscipline(id); err != nil {
@@ -381,6 +463,9 @@ func (a *App) adminPartCreate(w http.ResponseWriter, r *http.Request) {
 		a.respondAdmin(w, r, "Bitte zuerst eine Disziplin anlegen", false)
 		return
 	}
+	if a.discLocked(w, r, discID) {
+		return
+	}
 	if _, err := a.store.CreateParticipant(p); err != nil {
 		a.respondAdmin(w, r, "Anlegen fehlgeschlagen: "+err.Error(), false)
 		return
@@ -393,6 +478,9 @@ func (a *App) adminPartUpdate(w http.ResponseWriter, r *http.Request) {
 	p, err := a.store.GetParticipant(id)
 	if err != nil {
 		a.respondAdmin(w, r, "Teilnehmer nicht gefunden", false)
+		return
+	}
+	if a.discLocked(w, r, p.Discipline) {
 		return
 	}
 	p.StartNr = strings.TrimSpace(r.FormValue("start_nr"))
@@ -413,6 +501,9 @@ func (a *App) adminPartUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) adminPartMove(w http.ResponseWriter, r *http.Request) {
 	id := parseID(r.FormValue("id"))
+	if p, err := a.store.GetParticipant(id); err == nil && a.discLocked(w, r, p.Discipline) {
+		return
+	}
 	dir := 1
 	if r.FormValue("dir") == "-1" {
 		dir = -1
@@ -426,6 +517,9 @@ func (a *App) adminPartMove(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) adminPartDelete(w http.ResponseWriter, r *http.Request) {
 	id := parseID(r.FormValue("id"))
+	if p, err := a.store.GetParticipant(id); err == nil && a.discLocked(w, r, p.Discipline) {
+		return
+	}
 	if err := a.store.DeleteParticipant(id); err != nil {
 		a.respondAdmin(w, r, err.Error(), false)
 		return
@@ -444,6 +538,9 @@ func (a *App) adminScoresReset(w http.ResponseWriter, r *http.Request) {
 		a.respondAdmin(w, r, "keine Disziplin ausgewählt", false)
 		return
 	}
+	if a.discLocked(w, r, discID) {
+		return
+	}
 	if err := a.store.ResetScores(discID); err != nil {
 		a.respondAdmin(w, r, err.Error(), false)
 		return
@@ -457,12 +554,16 @@ func (a *App) adminCSVImport(w http.ResponseWriter, r *http.Request) {
 		a.respondAdmin(w, r, "Kein CSV-Inhalt angegeben", false)
 		return
 	}
-	n, err := a.store.ImportCSV(text)
+	n, skipped, err := a.store.ImportCSV(text)
 	if err != nil {
 		a.respondAdmin(w, r, "Import fehlgeschlagen: "+err.Error(), false)
 		return
 	}
-	a.respondAdmin(w, r, fmt.Sprintf("Import: %d Zeilen übernommen", n), true)
+	msg := fmt.Sprintf("Import: %d Zeilen übernommen", n)
+	if skipped > 0 {
+		msg += fmt.Sprintf(", %d Zeilen übersprungen (Turnier beendet)", skipped)
+	}
+	a.respondAdmin(w, r, msg, true)
 }
 
 func (a *App) adminCSVExport(w http.ResponseWriter, r *http.Request) {

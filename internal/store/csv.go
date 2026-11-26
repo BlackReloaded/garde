@@ -85,26 +85,34 @@ func flagValue(s string) bool {
 
 // ImportCSV importiert eine CSV-Datei. Session/Turnier/Disziplin werden
 // nach Name angelegt oder wiederverwendet; Teilnehmer werden idempotent
-// pro (Disziplin, Startnr) angelegt bzw. aktualisiert.
-func (s *Store) ImportCSV(text string) (int, error) {
+// pro (Disziplin, Startnr) angelegt bzw. aktualisiert. Zeilen, deren
+// Turnier als "beendet" (read-only) markiert ist, werden übersprungen –
+// Rückgabe zählt importierte und übersprungene Zeilen.
+func (s *Store) ImportCSV(text string) (int, int, error) {
 	rows, err := parseCSV(text)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
+	imported, skipped := 0, 0
 	for _, r := range rows {
-		compID, err := s.getOrCreateCompetition(r.Session, r.Comp)
+		compID, finished, err := s.getOrCreateCompetition(r.Session, r.Comp)
 		if err != nil {
-			return 0, fmt.Errorf("%s/%s: %w", r.Session, r.Comp, err)
+			return imported, skipped, fmt.Errorf("%s/%s: %w", r.Session, r.Comp, err)
+		}
+		if finished {
+			skipped++
+			continue
 		}
 		discID, err := s.getOrCreateDiscipline(compID, r.Disc)
 		if err != nil {
-			return 0, fmt.Errorf("%s/%s/%s: %w", r.Session, r.Comp, r.Disc, err)
+			return imported, skipped, fmt.Errorf("%s/%s/%s: %w", r.Session, r.Comp, r.Disc, err)
 		}
 		if _, err := s.UpsertParticipantByStartNr(discID, r.P); err != nil {
-			return 0, fmt.Errorf("%s %s: %w", r.P.StartNr, r.P.Name, err)
+			return imported, skipped, fmt.Errorf("%s %s: %w", r.P.StartNr, r.P.Name, err)
 		}
+		imported++
 	}
-	return len(rows), nil
+	return imported, skipped, nil
 }
 
 func (s *Store) getOrCreateSession(name string) (int64, error) {
@@ -119,22 +127,26 @@ func (s *Store) getOrCreateSession(name string) (int64, error) {
 	return s.CreateSession(name)
 }
 
-func (s *Store) getOrCreateCompetition(sessionName, compName string) (int64, error) {
+// getOrCreateCompetition liefert Turnier-ID + Read-only-Markierung. Ein
+// neu angelegtes Turnier ist immer editierbar.
+func (s *Store) getOrCreateCompetition(sessionName, compName string) (int64, bool, error) {
 	sid, err := s.getOrCreateSession(sessionName)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	var id int64
+	var fin int
 	err = s.db.QueryRow(
-		`SELECT id FROM competition WHERE session_id = ? AND name = ? COLLATE NOCASE`,
-		sid, compName).Scan(&id)
+		`SELECT id, finished FROM competition WHERE session_id = ? AND name = ? COLLATE NOCASE`,
+		sid, compName).Scan(&id, &fin)
 	if err == nil {
-		return id, nil
+		return id, fin == 1, nil
 	}
 	if err != sql.ErrNoRows {
-		return 0, err
+		return 0, false, err
 	}
-	return s.CreateCompetition(sid, compName)
+	newID, err := s.CreateCompetition(sid, compName)
+	return newID, false, err
 }
 
 func (s *Store) getOrCreateDiscipline(compID int64, discName string) (int64, error) {

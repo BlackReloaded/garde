@@ -160,9 +160,12 @@ type LiveData struct {
 	NumJ      int
 
 	LastScoreAt *time.Time
-	Finished    bool
-	NowUnix     int64 // für die Uhr
-	SlotLabel   string
+	Finished    bool // Zeitplan durchgelaufen (alle bewertet)
+	// CompFinished: Turnier ist vom Admin als „beendet" (read-only)
+	// markiert – das Punkteeingabe-Panel zeigt dann nur noch einen Hinweis.
+	CompFinished bool
+	NowUnix      int64 // für die Uhr
+	SlotLabel    string
 
 	// Turnier-Planung (Wettkampf-Ebene): Startzeit + eingeplante Blöcke
 	// (Mittagspause, Siegerehrung, …) → geplanter Ablauf (Anzeige + Anker
@@ -237,16 +240,17 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 	}
 
 	ld := &LiveData{
-		Sessions:  sessions,
-		Comps:     comps,
-		Discs:     []model.Discipline{},
-		CompID:    d.CompetitionID,
-		DiscID:    d.ID,
-		Disc:      d,
-		Parts:     parts,
-		NumJ:      d.NumJudges,
-		NowUnix:   now.Unix(),
-		SessionID: comp.SessionID,
+		Sessions:     sessions,
+		Comps:        comps,
+		Discs:        []model.Discipline{},
+		CompID:       d.CompetitionID,
+		CompFinished: comp.Finished,
+		DiscID:       d.ID,
+		Disc:         d,
+		Parts:        parts,
+		NumJ:         d.NumJudges,
+		NowUnix:      now.Unix(),
+		SessionID:    comp.SessionID,
 	}
 	// Alle Disziplinen des Turniers (für den Selektor).
 	allDiscs, err := a.store.ListDisciplines(d.CompetitionID)

@@ -348,6 +348,26 @@ Erzeugt wird das alles im Binary selbst (`go-pdf/fpdf`, Standard-Schrift
 Helvetica/cp1252) – kein externer Dienst, kein Headless-Browser, offline
 funktionierend.
 
+## Turnier als „beendet" markieren (read-only)
+
+Jedes Turnier kann im Admin-Bereich auf der Turniere-Karte mit **🔒 Beenden**
+als read-only markiert werden (danach nur noch „Sperre aufheben" – ein
+versehentliches Dauer-Zumatieren ist so nicht möglich). Solange die
+Markierung steht, sind **für alle** Änderungen gesperrt:
+
+- Noteneingabe (`POST /score`, auch `total_override`) → Antwort 403, das
+  Score-Panel der Live-Ansicht zeigt statt der Eingabefelder nur den Hinweis
+  „Turnier beendet"; die Topbar markiert den Pfad mit „(beendet)".
+- Alle Turnier-Bearbeitungen im Admin-Bereich (Umbenennen, Zeiten, Blöcke,
+  Disziplinen, Teilnehmer, Noten-Reset) → Flash-Fehler „Änderungen gesperrt",
+  die Editier-Formulare werden ausgeblendet (Lesansicht bleibt).
+- CSV-Import überspringt Zeilen, deren Turnier beendet ist (der Rest wird
+  normal importiert; der Flash meldet „x Zeilen übersprungen"). Das erlaubt
+  z. B. das Nachimportieren eines Archiv-Exports, ohne Beendetes zu verändern.
+
+Die Markierung ist eine Spalte `finished` an `competition` (beim ersten
+Start automatisch nachgerüstet) und bleibt damit über Neustarts erhalten.
+
 ## CSV-Import / Export (Admin-Bereich)
 
 ```
@@ -370,7 +390,7 @@ session;turnier;disziplin;startnr;name;verein;star;withdrawn
 ## Datenmodell
 
 ```
-Session ──> Competition („Turnier") ──> Discipline (Disziplin)
+Session ──> Competition („Turnier"; finished = read-only) ──> Discipline
                                         ├── max_dance_sec  = 120  (max. Tanzlänge)
                                         ├── scoring_def_sec= 120  (Default Punktezeit)
                                         ├── walk_on_sec    = 60   (Aufritt/Wechsel)
@@ -407,8 +427,8 @@ angezeigt – und im Admin-Bereich mit Badge sichtbar.
 |---|---|
 | `GET /` | Live-Ansicht (Session/Turnier/Disziplin via Query `s/t/d` + Cookie) – offen oder (mit `-password`) hinter dem Zugangs-Passwort |
 | `GET /partials/refresh` | OOB-Partial-Updates (Status, beide Platzierungen, Zeitplan) – Polling alle 5 s; Score-Panel nur mit explizitem `sel` (wird beim Polling nicht neu gerendert, damit Fokus/Eingabe erhalten bleiben) |
-| `POST /score` | `participant_id`, `judge`, `value` (leer = Note löschen); antwortet mit OOB-Updates – **nur mit Session (Rolle bewerten/admin) oder Bewertungs-Passwort-Cookie** |
-| `GET /admin`, `POST /admin/*` | Verwaltung: Session/Turnier/Disziplin anlegen · umbenennen · löschen, Turnier-Startzeit, Disziplin-Zeiten, Teilnehmer (inline bearbeiten, ↑↓ verschieben, löschen), Stern/Zurückgezogen, Noten-Reset, CSV-Import/-Export, Zugangs-Links anzeigen – **nur mit Session (Rolle admin)** |
+| `POST /score` | `participant_id`, `judge`, `value` (leer = Note löschen); antwortet mit OOB-Updates – **nur mit Session (Rolle bewerten/admin) oder Bewertungs-Passwort-Cookie**; in als „beendet" markierten Turnieren 403 (read-only) |
+| `GET /admin`, `POST /admin/*` | Verwaltung: Session/Turnier/Disziplin anlegen · umbenennen · löschen, Turnier-Startzeit, Turnier als „beendet" markieren/entsperren (`POST /admin/comp/finish`), Disziplin-Zeiten, Teilnehmer (inline bearbeiten, ↑↓ verschieben, löschen), Stern/Zurückgezogen, Noten-Reset, CSV-Import/-Export, Zugangs-Links anzeigen – **nur mit Session (Rolle admin)**; in belegten Turnieren sind alle Schreib-Endpoints gesperrt |
 | `GET /access` | Zugangs-Passwort-Formular (+ OAuth-Button bei Provider) – nur mit gesetztem Passwort aktiv |
 | `GET /join/{token}` | Zugangs-Link: setzt das Zugangs-Cookie wie die Passworteingabe und leitet weiter (Token im Log maskiert, Links im Admin-Bereich) |
 | `GET /auth/login` | Login-Start (Redirect zum Provider, `next=` für Ziel-URL) |

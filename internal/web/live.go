@@ -210,6 +210,13 @@ func (a *App) score(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Disziplin nicht gefunden", http.StatusNotFound)
 		return
 	}
+	// "Beendet"-Markierung: No editing is permitted – not even for Admin
+	// or Scorer. The lock can only be removed in the Admin area; the
+	// panel there already hides the input fields.
+	if c, err := a.store.GetCompetition(d.CompetitionID); err == nil && c.Finished {
+		http.Error(w, "Turnier beendet – keine Änderungen möglich", http.StatusForbidden)
+		return
+	}
 
 	// Offizielle Gesamtsumme: zählt die (NumJ-2) gestrichenfreien Noten,
 	// also max. (NumJ-2)*100 Punkte.
