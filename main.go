@@ -7,9 +7,11 @@
 //
 // Login: OIDC (OAuth2-Code-Flow) oder generisches OAuth2 (z. B. der
 // eingebaute Provider von mailcow). Ohne Provider-Flag startet die App nur
-// mit -password: einem allgemeinen Zugangs-Passwort, das die Live-Ansicht
-// für alle öffnet, die es kennen (reine Lese-Ansicht). Ganz ohne Provider
-// UND ohne Passwort startet die App nicht.
+// mit Passwörtern: -password (öffnet die Live-Ansicht zum Lesen) und
+// -score-password (danach zusätzlich Punkteeingabe, geteilter Zugang).
+// Ganz ohne Provider UND ohne Passwörter startet die App nicht. Auf der
+// Zugangsseite sitzt bei konfiguriertem Provider immer auch der
+// Login-Button – OAuth geht also direkt auf der ersten Seite.
 // Rollen (admin/bewerten) werden über die Datenbank vergeben (Admin-UI);
 // nur dort gelistete Benutzer dürfen etwas ändern, alle anderen haben
 // reines Lese-Recht.
@@ -83,10 +85,16 @@ func main() {
 		"Session-Laufzeit in Stunden")
 	password := flag.String("password", os.Getenv("TURNIER_PASSWORD"),
 		"Allgemeines Zugangs-Passwort (auch über Env TURNIER_PASSWORD). Wenn "+
-			"gesetzt, öffnet die Live-Ansicht erst nach Eingabe des Passworts – "+
-			"reine Lese-Ansicht, Bewerten/Admin bleiben dem Login vorbehalten. "+
-			"Ohne Provider-Flags Pflicht (einzige Zugangsmöglichkeit), mit "+
-			"Provider zusätzlich vor die Lese-Ansicht gesetzt.")
+			"gesetzt, öffnet die Live-Ansicht erst nach Eingabe des Passworts "+
+			"(reine Lese-Ansicht). Ohne Provider-Flags Pflicht (einzige "+
+			"Zugangsmöglichkeit), mit Provider zusätzlich vor die Lese-Ansicht "+
+			"gesetzt.")
+	scorePassword := flag.String("score-password", os.Getenv("TURNIER_SCORE_PASSWORD"),
+		"Zusätzliches Bewertungs-Passwort (auch über Env TURNIER_SCORE_PASSWORD). "+
+			"Nach Eingabe auf der Zugangsseite ist Punkteeingabe möglich "+
+			"(geteilter Zugang, Richter-Nummer kommt aus dem Formular). Leer = "+
+			"Bewerten nur mit Provider-Login + Rolle. Auf der Zugangsseite "+
+			"sitzt bei konfiguriertem Provider immer auch der Login-Button.")
 	flag.Parse()
 
 	providerSet := *issuer != "" || *oauth2BaseURL != ""
@@ -94,10 +102,12 @@ func main() {
 	case *issuer != "" && *oauth2BaseURL != "":
 		log.Fatal("Nur EIN Login-Provider ist erlaubt: -oidc-issuer und " +
 			"-oauth2-base-url dürfen nicht gleichzeitig gesetzt sein.")
-	case !providerSet && *password == "":
-		log.Fatal("Ohne Login-Provider ist -password Pflicht: Live-Ansicht per " +
-			"Zugangs-Passwort schützen (oder Env TURNIER_PASSWORD) oder " +
-			"-oidc-issuer / -oauth2-base-url setzen – ohne beides startet turnier nicht.")
+	case !providerSet && *password == "" && *scorePassword == "":
+		log.Fatal("Ohne Login-Provider ist mindestens ein Passwort Pflicht: " +
+			"-password (Lese-Zugang) und/oder -score-password (Bewerten), " +
+			"alternativ die Envs TURNIER_PASSWORD/TURNIER_SCORE_PASSWORD – " +
+			"oder -oidc-issuer / -oauth2-base-url setzen; ohne alles startet " +
+			"turnier nicht.")
 	case providerSet && (*clientID == "" || *clientSecret == ""):
 		log.Fatal("Login-Client ist Pflicht: -oidc-client-id und -oidc-client-secret " +
 			"setzen (Secret alternativ über Env TURNIER_OIDC_CLIENT_SECRET).")
@@ -134,6 +144,7 @@ func main() {
 		RedirectURL:        *redirectURL,
 		SessionTTL:         time.Duration(*sessionHours * float64(time.Hour)),
 		Password:           *password,
+		ScorePassword:      *scorePassword,
 	})
 	if err != nil {
 		log.Fatalf("Auth initialisieren: %v", err)
@@ -156,9 +167,19 @@ func main() {
 		log.Printf("turnier läuft auf %s (DB: %s)", runAddr, *db)
 		log.Printf("Login-Provider: %s (Callback: %s)", provider, *redirectURL)
 	} else {
+		wege := ""
+		if *password != "" {
+			wege = "Zugangspasswort (nur Lese-Ansicht)"
+		}
+		if *scorePassword != "" {
+			if wege != "" {
+				wege += " + "
+			}
+			wege += "Bewertungs-Passwort (Bewerten)"
+		}
 		log.Printf("turnier läuft auf %s (DB: %s)", runAddr, *db)
-		log.Printf("Login: kein Provider – Live-Ansicht nur mit Zugangs-Passwort " +
-			"(Lese-Zugang). Bewerten/Admin erst mit Provider-Login möglich.")
+		log.Printf("Login: kein Provider – Zugang nur über %s. Admin nur mit "+
+			"Provider-Login.", wege)
 	}
 
 	// Rollen-Status (DB) loggen; bei leerer Admin-Liste warnen – sonst

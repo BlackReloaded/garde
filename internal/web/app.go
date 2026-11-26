@@ -76,10 +76,12 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /export/competition", gate(a.exportProtocol))
 	mux.HandleFunc("GET /export/protocol.csv", gate(a.exportResultsCSV))
 	mux.HandleFunc("GET /export/competition.csv", gate(a.exportResultsCSV))
-	// Änderungen brauchen eine Session: Noten → Rolle bewerten (oder admin),
-	// Admin-Bereich → Rolle admin. Nicht angemeldet bleibt die reine
+	// Änderungen brauchen Bewerten-Rechte: Provider-Session mit Rolle
+	// bewerten (oder admin) ODER das Bewertungs-Passwort (-score-password,
+	// geteilter Zugang – Richter-Nummer kommt aus dem Formular). Admin
+	// bleibt Rolle admin per Login. Nicht berechtigt bleibt die reine
 	// Live-Ansicht (Lese-Recht).
-	score := a.auth.requireRole(model.RoleScorer, a.score)
+	score := a.auth.requireScore(a.score)
 	mux.HandleFunc("POST /score", score)
 
 	admin := func(h http.HandlerFunc) http.HandlerFunc {

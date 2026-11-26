@@ -204,6 +204,13 @@ button, a.btn {
   font-size: 16px;
 }
 .auth-error button { margin-top: 10px; width: 100%; }
+.auth-error a.btn {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 10px;
+  text-align: center;
+}
 .card h2 {
   margin: 0 0 12px;
   font-size: 14px;

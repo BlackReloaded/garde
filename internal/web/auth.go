@@ -8,13 +8,18 @@
 //   - Generisches OAuth2 (z. B. der eingebaute Provider von mailcow):
 //     feste Endpoints (/oauth/authorize, /oauth/token, /oauth/profile),
 //     Access-Token statt ID-Token, Benutzerdaten über das Profile-Endpunkt.
-//   - Kein Provider: nur das Zugangs-Passwort (-password) – die App startet
-//     dann ohne Login; Bewerten/Admin ist erst mit Provider möglich.
+//   - Kein Provider: nur Passwörter (-password und/oder -score-password) –
+//     die App startet dann ohne Login.
 //
-// Das Zugangs-Passwort ist Lese-Zugang, KEIN Login: Es öffnet Live-Ansicht
-// und Exporte für alle, die es kennen (Passwort-Seite /access, signiertes
-// Cookie, pro IP nach 5 Fehlversuchen 60 s Pause). Bewerten und Admin
-// brauchen weiterhin Provider-Login + Rollen-Eintrag in der DB.
+// Die Passwörter sind Zugangs-Türen, KEINE Logins (Passwort-Seite /access,
+// signiertes Cookie, pro IP nach 5 Fehlversuchen 60 s Pause): -password
+// öffnet Live-Ansicht und Exporte für alle, die es kennen; -score-password
+// erlaubt nach Eingabe zusätzlich die Punkteeingabe. Auf der Zugangsseite
+// sitzt daneben der Login-Button des Providers (falls konfiguriert) –
+// OAuth geht also immer direkt auf der ersten Seite. Bewerten per Login
+// braucht weiterhin den Rollen-Eintrag in der DB; Admin geht nur per Login.
+// Das Bewertungs-Passwort ist ein geteilter Zugang: Die Richter-Nummer
+// kommt aus dem Formular, die Identität bleibt unbekannt.
 //
 // Rollen werden über die Datenbank-Tabelle login_role vergeben (einzige
 // Quelle): Einträge legt der Admin in der Admin-UI an; beim Start werden
@@ -64,8 +69,9 @@ const (
 )
 
 // AuthConfig ist die Login-Konfiguration (aus Flags/Env, s. main.go).
-// Ohne Provider (Issuer/OAuth2BaseURL) muss mindestens Password gesetzt
-// sein – sonst startet die App ohne jede Auth, und das ist nicht gedacht.
+// Ohne Provider (Issuer/OAuth2BaseURL) muss mindestens eines der beiden
+// Passwörter gesetzt sein – sonst startet die App ohne jede Auth, und das
+// ist nicht gedacht.
 type AuthConfig struct {
 	Issuer string // OIDC: Discovery-URL des Providers
 
@@ -81,6 +87,8 @@ type AuthConfig struct {
 	SessionTTL   time.Duration // Laufzeit der Session (Default 12 h)
 
 	Password string // Allgemeines Zugangs-Passwort (nur Lese-Zugang, s. oben)
+
+	ScorePassword string // Bewertungs-Passwort (öffnet zusätzlich die Noteneingabe)
 }
 
 // Auth bündelt Provider-Client (OIDC oder generisches OAuth2),
@@ -100,12 +108,15 @@ type Auth struct {
 	signingKey   []byte // nur im Speicher: signiert State- und Zugangs-Cookies
 	conf         *oauth2.Config
 
-	// Zugangs-Passwort (-password): wenn gesetzt, brauchen anonyme
-	// Requests ein gültiges access-Cookie für die Lese-Routen. loginPath
-	// ist das Ziel, wenn nach Login verlangt wird (ohne Provider führt
-	// es zum Passwort-Formular). pwMu/pwAttempts zählt Fehlversuche pro
+	// Zugangs-Passwörter (-password, -score-password): wenn gesetzt,
+	// brauchen anonyme Requests ein gültiges access-Cookie für die
+	// Lese-Routen; das Bewertungs-Passwort-Cookie öffnet zusätzlich die
+	// Noteneingabe. loginPath ist das Ziel, wenn nach Login verlangt wird
+	// (ohne Provider führt es zum Passwort-Formular), scoreLoginPath das
+	// Ziel für Bewerten-Requests. pwMu/pwAttempts zählt Fehlversuche pro
 	// IP für die Passwort-Eingabe.
 	accessPass []byte
+	scorePass  []byte
 	loginPath  string
 
 	pwMu       sync.Mutex
@@ -131,9 +142,10 @@ func NewAuth(st *store.Store, cfg AuthConfig) (*Auth, error) {
 		return nil, errors.New("Login: nur EIN Provider – Issuer (OIDC) und " +
 			"OAuth2BaseURL nicht gleichzeitig")
 	}
-	if !providerSet && cfg.Password == "" {
-		return nil, errors.New("Login: ohne Provider ist das Zugangs-Passwort " +
-			"Pflicht (AuthConfig.Password) – sonst startet die App ohne Auth")
+	if !providerSet && cfg.Password == "" && cfg.ScorePassword == "" {
+		return nil, errors.New("Login: ohne Provider ist mindestens ein " +
+			"Passwort Pflicht (Password und/oder ScorePassword) – sonst " +
+			"startet die App ohne Auth")
 	}
 	if providerSet && (cfg.ClientID == "" || cfg.RedirectURL == "") {
 		return nil, errors.New("Login: ClientID und RedirectURL sind Pflicht")
@@ -154,6 +166,9 @@ func NewAuth(st *store.Store, cfg AuthConfig) (*Auth, error) {
 	}
 	if cfg.Password != "" {
 		a.accessPass = []byte(cfg.Password)
+	}
+	if cfg.ScorePassword != "" {
+		a.scorePass = []byte(cfg.ScorePassword)
 	}
 	a.loginPath = "/auth/login"
 	if !providerSet {
@@ -452,15 +467,23 @@ type AuthState struct {
 	Email    string
 	Name     string
 	Role     string // effektive Rolle (aktueller DB-Stand der Rollen-Liste)
-	CanScore bool   // bewerten oder admin
+	CanScore bool   // bewerten oder admin – oder gültiges Bewertungs-Passwort
 	CanAdmin bool
+	LoginURL string // Ziel des „anmelden"-Links im Lese-Panel (s. authState)
 }
 
 // authState löst die Session des Requests auf. "Eingeloggt" ohne Rolle
 // (Adresse nicht mehr in der Rollen-Liste) wird mit Rolle "" behandelt –
 // die Middleware leitet dann zum Login um, der im Callback abweist.
+// Das Bewertungs-Passwort ist kein Login (kein LoggedIn), aber es schaltet
+// CanScore frei. LoginURL zeigt dorthin, wo man Bewerten-Rechte bekommt:
+// Zugangsseite, wenn ein Bewertungs-Passwort existiert (dort sitzt auch
+// der Provider-Button), sonst der normale Login.
 func (a *Auth) authState(r *http.Request) AuthState {
-	var as AuthState
+	as := AuthState{LoginURL: a.scoreLoginPath()}
+	if a.scoreCookieOK(r) {
+		as.CanScore = true
+	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
 		return as
@@ -470,13 +493,13 @@ func (a *Auth) authState(r *http.Request) AuthState {
 		return as
 	}
 	role := a.RoleFor(u.Email)
-	as = AuthState{
-		LoggedIn: true,
-		Email:    u.Email,
-		Name:     u.Name,
-		Role:     role,
-		CanScore: role == model.RoleAdmin || role == model.RoleScorer,
-		CanAdmin: role == model.RoleAdmin,
+	as.LoggedIn = true
+	as.Email = u.Email
+	as.Name = u.Name
+	as.Role = role
+	if role == model.RoleAdmin || role == model.RoleScorer {
+		as.CanScore = true
+		as.CanAdmin = role == model.RoleAdmin
 	}
 	return as
 }
@@ -827,22 +850,67 @@ func (a *Auth) clearStateCookie(w http.ResponseWriter) {
 
 // ---------- Middleware ----------
 
+// scoreLoginPath ist das Ziel für Requests, die Bewerten-Rechte brauchen:
+// mit Bewertungs-Passwort die Zugangsseite (dort gibt es das Passwortfeld
+// und – bei Provider – den Login-Button), sonst der normale Login.
+func (a *Auth) scoreLoginPath() string {
+	if a.scorePass != nil {
+		return "/access"
+	}
+	return a.loginPath
+}
+
+// scoreCookieOK prüft auf ein gültiges Zugangs-Cookie, das mit dem
+// Bewertungs-Passwort geholt wurde (accessPayload.Score).
+func (a *Auth) scoreCookieOK(r *http.Request) bool {
+	if a.scorePass == nil {
+		return false
+	}
+	c, err := r.Cookie(accessCookie)
+	if err != nil || c.Value == "" {
+		return false
+	}
+	p, ok := a.validAccess(c.Value)
+	return ok && p.Score
+}
+
+// requireScore lässt Bewerten-Requests durch: Provider-Session mit Rolle
+// bewerten/admin ODER gültiges Bewertungs-Passwort-Cookie (geteilter
+// Zugang – die Richter-Nummer kommt aus dem Formular). Ohne beides führt
+// der Weg aufs Login-Ziel, wo beides angeboten wird.
+func (a *Auth) requireScore(h http.HandlerFunc) http.HandlerFunc {
+	guard := a.requireRoleAt(a.scoreLoginPath(), model.RoleScorer, h)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.scoreCookieOK(r) {
+			h.ServeHTTP(w, r)
+			return
+		}
+		guard(w, r)
+	}
+}
+
+// redirectLogin schickt den Request zum Login: HTMX-Requests bekommen
+// HX-Redirect (Page-Navigation, z. B. bei abgelaufener Session mitten im
+// Turnier), normale Requests einen 303-Redirect.
+func redirectLogin(w http.ResponseWriter, r *http.Request, login, next string) {
+	loc := login + "?next=" + url.QueryEscape(next)
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", loc)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, loc, http.StatusSeeOther)
+}
+
 // requireRole lässt den Handler nur durch, wenn der Request angemeldet ist
 // und mindestens minRole hat. Nicht angemeldet → Redirect zum Login
 // (Browser und HTMX folgen dem); angemeldet, aber zu wenig Rechte → 403.
 func (a *Auth) requireRole(minRole string, h http.HandlerFunc) http.HandlerFunc {
-	// redirectToLogin schickt den Request zum Login: HTMX-Requests bekommen
-	// HX-Redirect (Page-Navigation, z. B. bei abgelaufener Session mitten im
-	// Turnier), normale Requests einen 303-Redirect.
-	redirectToLogin := func(w http.ResponseWriter, r *http.Request, next string) {
-		loc := a.loginPath + "?next=" + url.QueryEscape(next)
-		if r.Header.Get("HX-Request") == "true" {
-			w.Header().Set("HX-Redirect", loc)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		http.Redirect(w, r, loc, http.StatusSeeOther)
-	}
+	return a.requireRoleAt(a.loginPath, minRole, h)
+}
+
+// requireRoleAt ist der Guard mit eigenem Login-Ziel.
+func (a *Auth) requireRoleAt(login, minRole string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		as := a.authState(r)
 		if !as.LoggedIn {
@@ -850,7 +918,7 @@ func (a *Auth) requireRole(minRole string, h http.HandlerFunc) http.HandlerFunc 
 			if q := r.URL.RawQuery; q != "" {
 				next += "?" + q
 			}
-			redirectToLogin(w, r, next)
+			redirectLogin(w, r, login, next)
 			return
 		}
 		if roleRank(as.Role) < roleRank(minRole) {
@@ -858,7 +926,7 @@ func (a *Auth) requireRole(minRole string, h http.HandlerFunc) http.HandlerFunc 
 				// Rolle komplett entzogen (nicht mehr in der Rollen-Liste):
 				// Session verwerfen, neu einloggen (Callback weist dann ab).
 				_ = a.logoutSessionOnly(w, r)
-				redirectToLogin(w, r, r.URL.Path)
+				redirectLogin(w, r, login, r.URL.Path)
 				return
 			}
 			// Angemeldet, aber zu wenig Rechte: 403, Session bleibt erhalten.
@@ -911,15 +979,17 @@ type pwCounter struct {
 
 // accessOK prüft den Lese-Zugang. Ohne Zugangs-Passwort ist alles offen
 // (Verhalten wie ohne dieses Feature). Mit Passwort genügt ein gültiges
-// access-Cookie – oder eine Login-Session mit Rolle: Scorer/Admin lesen
-// ohne Umweg. "Eingeloggt" ohne Rolle zählt nicht (die Middleware wirft
-// solche Sessions ohnehin raus).
+// access-Cookie (mit oder ohne Bewerten-Recht) – oder eine Login-Session
+// mit Rolle: Scorer/Admin lesen ohne Umweg. "Eingeloggt" ohne Rolle zählt
+// nicht (die Middleware wirft solche Sessions ohnehin raus).
 func (a *Auth) accessOK(r *http.Request) bool {
 	if a.accessPass == nil {
 		return true
 	}
-	if c, err := r.Cookie(accessCookie); err == nil && a.accessValid(c.Value) {
-		return true
+	if c, err := r.Cookie(accessCookie); err == nil {
+		if _, ok := a.validAccess(c.Value); ok {
+			return true
+		}
 	}
 	as := a.authState(r)
 	return as.LoggedIn && roleRank(as.Role) > 0
@@ -949,17 +1019,19 @@ func (a *Auth) requireAccess(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// accessPayload ist der Inhalt des Zugangs-Cookies: nur das Ablaufdatum.
+// accessPayload ist der Inhalt des Zugangs-Cookies: Ablaufdatum und ob es
+// mit dem Bewertungs-Passwort geholt wurde (Score → Noteneingabe offen).
 type accessPayload struct {
-	Exp int64 `json:"e"`
+	Exp   int64 `json:"e"`
+	Score bool  `json:"s,omitempty"`
 }
 
 // signAccess baut den Cookie-Wert (Basis64-Nutzdaten + HMAC über dem
 // Signing-Key). Ohne das Secret lässt sich kein Zugang erdenken; nach
 // einem Neustart sind alle Zugangs-Cookies pauschal ungültig (neuer
 // Key), spätestens nach SessionTTL auch vorher.
-func (a *Auth) signAccess(exp time.Time) (string, error) {
-	data, err := json.Marshal(accessPayload{Exp: exp.Unix()})
+func (a *Auth) signAccess(exp time.Time, score bool) (string, error) {
+	data, err := json.Marshal(accessPayload{Exp: exp.Unix(), Score: score})
 	if err != nil {
 		return "", err
 	}
@@ -969,30 +1041,34 @@ func (a *Auth) signAccess(exp time.Time) (string, error) {
 		base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
-// accessValid prüft Signatur und Ablaufdatum eines Zugangs-Cookie-Werts.
-func (a *Auth) accessValid(v string) bool {
+// validAccess prüft Signatur und Ablaufdatum eines Zugangs-Cookie-Werts
+// und liefert das Payload (für die Bewerten-Frage).
+func (a *Auth) validAccess(v string) (accessPayload, bool) {
 	parts := strings.SplitN(v, ".", 2)
 	if len(parts) != 2 {
-		return false
+		return accessPayload{}, false
 	}
 	data, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return false
+		return accessPayload{}, false
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return false
+		return accessPayload{}, false
 	}
 	mac := hmac.New(sha256.New, a.signingKey)
 	mac.Write(data)
 	if !hmac.Equal(sig, mac.Sum(nil)) {
-		return false
+		return accessPayload{}, false
 	}
 	var p accessPayload
 	if err := json.Unmarshal(data, &p); err != nil {
-		return false
+		return accessPayload{}, false
 	}
-	return time.Now().Unix() < p.Exp
+	if time.Now().Unix() >= p.Exp {
+		return accessPayload{}, false
+	}
+	return p, true
 }
 
 // pwBlocked liefert die Restzeit einer IP-Sperre (0 = Eingaben erlaubt).
@@ -1052,18 +1128,19 @@ func clientIP(r *http.Request) string {
 // accessForm zeigt das Eingabefeld (GET /access). Ohne konfiguriertes
 // Passwort gibt es hier nichts – zurück zur (offenen) Live-Ansicht.
 func (a *Auth) accessForm(w http.ResponseWriter, r *http.Request) {
-	if a.accessPass == nil {
+	if a.accessPass == nil && a.scorePass == nil {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	a.accessPage(w, http.StatusOK, "", sanitizeNext(r.URL.Query().Get("next")))
 }
 
-// accessSubmit prüft das eingegebene Passwort: richtig → signiertes
-// Zugangs-Cookie + weiter zur gewünschten Seite; falsch → 401, nach
-// pwMaxFails Fehlversuchen pro IP 429 ohne Vergleich.
+// accessSubmit prüft das eingegebene Passwort gegen beide Zugangs-
+// Passwörter: Treffer → signiertes Zugangs-Cookie (beim Bewertungs-
+// Passwort inkl. Bewerten-Recht) + weiter zur gewünschten Seite;
+// daneben → 401, nach pwMaxFails Fehlversuchen pro IP 429 ohne Vergleich.
 func (a *Auth) accessSubmit(w http.ResponseWriter, r *http.Request) {
-	if a.accessPass == nil {
+	if a.accessPass == nil && a.scorePass == nil {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
@@ -1079,9 +1156,20 @@ func (a *Auth) accessSubmit(w http.ResponseWriter, r *http.Request) {
 				int(wait.Seconds())+1), next)
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(r.Form.Get("password")), a.accessPass) == 1 {
+	pw := []byte(r.Form.Get("password"))
+	bewerten := false
+	ok := false
+	// Das Bewertungs-Passwort wird zuerst verglichen: es öffnet mehr
+	// (Lesen + Bewerten) und darf bewusst mit dem Zugangspasswort
+	// identisch sein – dann öffnet die Eingabe beides.
+	if a.scorePass != nil && subtle.ConstantTimeCompare(pw, a.scorePass) == 1 {
+		ok, bewerten = true, true
+	} else if a.accessPass != nil && subtle.ConstantTimeCompare(pw, a.accessPass) == 1 {
+		ok = true
+	}
+	if ok {
 		a.pwReset(ip)
-		v, err := a.signAccess(time.Now().Add(a.sessionTTL))
+		v, err := a.signAccess(time.Now().Add(a.sessionTTL), bewerten)
 		if err != nil {
 			a.serverError(w, err)
 			return
@@ -1091,7 +1179,11 @@ func (a *Auth) accessSubmit(w http.ResponseWriter, r *http.Request) {
 			Path: "/", MaxAge: int(a.sessionTTL.Seconds()),
 			HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: a.secure,
 		})
-		log.Printf("Zugangs-Passwort akzeptiert (Lese-Zugang, IP %s)", ip)
+		what := "Lese-Zugang"
+		if bewerten {
+			what = "Bewerten"
+		}
+		log.Printf("Zugangs-Passwort akzeptiert (%s, IP %s)", what, ip)
 		http.Redirect(w, r, next, http.StatusSeeOther)
 		return
 	}
@@ -1104,14 +1196,33 @@ func (a *Auth) accessSubmit(w http.ResponseWriter, r *http.Request) {
 	a.accessPage(w, http.StatusUnauthorized, msg, next)
 }
 
-// accessPage rendert das minimalistische Passwort-Formular – wie die
-// errorPage ohne Base-Template, damit es auch vor jedem Login trägt.
+// accessPage rendert das minimalistische Zugangs-Formular – wie die
+// errorPage ohne Base-Template, damit es auch vor jedem Login trägt. Bei
+// konfiguriertem Provider sitzt unter dem Passwortfeld der Login-Button:
+// OAuth geht also immer direkt auf der ersten Seite.
 func (a *Auth) accessPage(w http.ResponseWriter, status int, msg, next string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	fehler := ""
 	if msg != "" {
 		fehler = `<p class="auth-fail">` + template.HTMLEscapeString(msg) + `</p>`
+	}
+	hilfe := "Diese Turnier-Ansicht ist passwortgeschützt."
+	placeholder := "Zugangspasswort"
+	if a.scorePass != nil {
+		hilfe += " Das Zugangspasswort öffnet die reine Lese-Ansicht, das " +
+			"Bewertungs-Passwort zusätzlich die Punkteeingabe."
+		placeholder = "Zugangs- oder Bewertungs-Passwort"
+	} else {
+		hilfe += " Das Passwort öffnet die reine Lese-Ansicht."
+	}
+	oauth := ""
+	if a.hasProvider {
+		hilfe += " Alternativ kannst du dich beim Login-Anbieter anmelden " +
+			"(freigeschaltete Adressen dürfen damit bewerten)."
+		oauth = fmt.Sprintf(
+			`<a class="btn primary" href="/auth/login?next=%s">Beim Login-Anbieter anmelden</a>`,
+			template.HTMLEscapeString(url.QueryEscape(next)))
 	}
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8">
@@ -1125,18 +1236,17 @@ func (a *Auth) accessPage(w http.ResponseWriter, status int, msg, next string) {
   <div class="card">
     <h1>Zugang</h1>
     %s
-    <p>Diese Turnier-Ansicht ist passwortgeschützt. Das Passwort öffnet die
-       reine Lese-Ansicht – zum Bewerten oder Verwalten bitte zusätzlich am
-       Login-Anbieter anmelden.</p>
+    <p>%s</p>
     <form method="post" action="/access">
       <input type="hidden" name="next" value="%s">
-      <input type="password" name="password" placeholder="Zugangspasswort"
+      <input type="password" name="password" placeholder="%s"
              autocomplete="current-password" autofocus>
-      <button class="btn primary" type="submit">Anzeigen</button>
+      <button class="btn primary" type="submit">Anzeigen</button>%s
     </form>
   </div>
 </div>
-</body></html>`, fehler, template.HTMLEscapeString(next))
+</body></html>`, fehler, template.HTMLEscapeString(hilfe),
+		template.HTMLEscapeString(next), placeholder, oauth)
 }
 
 // ---------- Fehlerseiten ----------

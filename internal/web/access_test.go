@@ -1,7 +1,9 @@
-// access_test.go: Zugangs-Passwort (Lese-Zugang) – Gate für die Lese-
-// Routen, Formular, Rate-Limit und der providerlose Start (-password
-// ohne oidc-*/oauth2-*). newTestApp lässt bei gesetztem Password den
-// Provider leer, das ist hier der Regelfall.
+// access_test.go: Zugangs-Passwörter. -password = Lese-Zugang (Gate für
+// Live-Routen), -score-password = Bewertungs-Passwort (össnet zusätzlich
+// die Noteneingabe, gemeinsamer Zugang statt Login). Bei konfiguriertem
+// Provider zeigt die Zugangsseite zusätzlich den OAuth-Login-Knopf.
+// newTestApp lässt bei gesetztem Password den Provider leer, das ist hier
+// der Regelfall (providerloser Start).
 
 package web
 
@@ -35,6 +37,20 @@ func accessCookieVal(res *http.Response) string {
 		}
 	}
 	return ""
+}
+
+// postScore feuert eine Note auf Teilnehmer 1 (seedLive) und liefert die
+// Antwort; cookie = access-Cookie-Wert ("" = ohne).
+func postScore(mux http.Handler, cookie string) *http.Response {
+	req := httptest.NewRequest("POST", "/score",
+		strings.NewReader("participant_id=1&judge=1&value=50"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if cookie != "" {
+		req.AddCookie(&http.Cookie{Name: accessCookie, Value: cookie})
+	}
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	return w.Result()
 }
 
 // TestAccessGate: mit Passwort sind Live-Ansicht und Exporte erst nach
@@ -186,7 +202,7 @@ func TestPasswordOnlyStart(t *testing.T) {
 	}
 }
 
-// TestNoPasswordKeepsOpenView: ohne -password ist die Live-Ansicht offen
+// TestNoPasswordKeepsOpenView: ohne Passwörter ist die Live-Ansicht offen
 // wie vor dem Feature (Backwards-Kompatibilität).
 func TestNoPasswordKeepsOpenView(t *testing.T) {
 	app, st := newTestApp(t, AuthConfig{})
@@ -203,5 +219,120 @@ func TestNoPasswordKeepsOpenView(t *testing.T) {
 	mux.ServeHTTP(w, httptest.NewRequest("GET", "/access", nil))
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("GET /access ohne Passwort: Status %d, wollte Redirect", w.Code)
+	}
+}
+
+// TestScorePassword: das Bewertungs-Passwort öffnet die Noteneingabe, das
+// reine Zugangs-Passwort nicht. Ohne jedes Recht (und ohne Login) leitet
+// /score auf die Zugangsseite um.
+func TestScorePassword(t *testing.T) {
+	app, st := newTestApp(t, AuthConfig{Password: "geheim", ScorePassword: "bewerten"})
+	seedLive(t, st)
+	mux := app.Handler()
+
+	// Lese-Passwort: Cookie ohne Bewerten-Recht. Bewertungs-Passwort:
+	// Cookie damit. Beide müssen verschieden sein (unterschiedliches
+	// Payload → andere Signatur).
+	readVal := accessCookieVal(postAccess(mux, "geheim"))
+	scoreVal := accessCookieVal(postAccess(mux, "bewerten"))
+	if readVal == "" || scoreVal == "" || readVal == scoreVal {
+		t.Fatalf("Cookies fehlen oder gleich: %q / %q", readVal, scoreVal)
+	}
+
+	// Ohne Recht: Redirect auf die Zugangsseite (dort sitzt auch der
+	// Provider-Button, falls einer konfiguriert ist).
+	res := postScore(mux, "")
+	if res.StatusCode != http.StatusSeeOther ||
+		!strings.HasPrefix(res.Header.Get("Location"), "/access") {
+		t.Fatalf("POST /score ohne Recht: Status %d Location %q",
+			res.StatusCode, res.Header.Get("Location"))
+	}
+	// Nur Lese-Recht: gleicher Redirect, kein Durchkommen.
+	res = postScore(mux, readVal)
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST /score mit Lese-Cookie: Status %d Location %q",
+			res.StatusCode, res.Header.Get("Location"))
+	}
+	// Bewerten-Cookie: Guard durchgelassen, Note wird gespeichert (200 =
+	// OOB-Antwort des Score-Handlers).
+	if res = postScore(mux, scoreVal); res.StatusCode != http.StatusOK {
+		t.Fatalf("POST /score mit Bewerten-Cookie: Status %d, wollte 200",
+			res.StatusCode)
+	}
+
+	// Panel: mit Bewerten-Cookie stehen die Note-Eingabefelder drin, mit
+	// dem Lese-Cookie nur der Hinweis mit Link auf die Zugangsseite.
+	get := func(cookie string) string {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/", nil)
+		req.AddCookie(&http.Cookie{Name: accessCookie, Value: cookie})
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /: Status %d", w.Code)
+		}
+		return w.Body.String()
+	}
+	body := get(scoreVal)
+	if !strings.Contains(body, `hx-post="/score"`) {
+		t.Fatal("Bewerten-Cookie: Score-Eingabefelder fehlen")
+	}
+	body = get(readVal)
+	if strings.Contains(body, `hx-post="/score"`) {
+		t.Fatal("Lese-Cookie: Score-Eingabefelder sollten fehlen")
+	}
+	if !strings.Contains(body, `href="/access"`) {
+		t.Fatal("Lese-Cookie: Hinweis-Link auf die Zugangsseite fehlt")
+	}
+}
+
+// TestAccessPageOffersOAuth: mit konfiguriertem Provider sitzt auf der
+// Zugangsseite der Login-Knopf – OAuth geht damit direkt auf der ersten
+// Seite, nicht erst hinter der Lese-Ansicht.
+func TestAccessPageOffersOAuth(t *testing.T) {
+	app, st := newTestApp(t, AuthConfig{
+		Issuer: "https://idp.test", Password: "geheim", ScorePassword: "bewerten"})
+	seedLive(t, st)
+	mux := app.Handler()
+
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/access", nil))
+	body := w.Body.String()
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /access: Status %d", w.Code)
+	}
+	if !strings.Contains(body, `/auth/login?next=`) {
+		t.Fatal("OAuth-Login-Knopf fehlt auf der Zugangsseite")
+	}
+	if !strings.Contains(body, "Bewertungs-Passwort") {
+		t.Fatal("Hinweis auf das Bewertungs-Passwort fehlt")
+	}
+}
+
+// TestScorePasswordOnly: nur das Bewertungs-Passwort gesetzt lassen die
+// Live-Ansicht offen – geändert werden darf erst nach Passworteingabe.
+func TestScorePasswordOnly(t *testing.T) {
+	app, st := newTestApp(t, AuthConfig{ScorePassword: "bewerten"})
+	seedLive(t, st)
+	mux := app.Handler()
+
+	// Live-Ansicht ohne alles erreichbar (kein Lese-Gate).
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET / ohne Passwort: Status %d, wollte 200", w.Code)
+	}
+	// /score ohne Recht: weiter via /access (scoreLoginPath).
+	if res := postScore(mux, ""); res.StatusCode != http.StatusSeeOther ||
+		!strings.HasPrefix(res.Header.Get("Location"), "/access") {
+		t.Fatalf("POST /score ohne Recht: Status %d Location %q",
+			res.StatusCode, res.Header.Get("Location"))
+	}
+	res := postAccess(mux, "bewerten")
+	if res.StatusCode != http.StatusSeeOther || accessCookieVal(res) == "" {
+		t.Fatalf("Bewertungs-Passwort: Status %d, Cookie fehlt", res.StatusCode)
+	}
+	if res = postScore(mux, accessCookieVal(res)); res.StatusCode != http.StatusOK {
+		t.Fatalf("POST /score mit Bewerten-Cookie: Status %d, wollte 200",
+			res.StatusCode)
 	}
 }

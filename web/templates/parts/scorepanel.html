@@ -75,7 +75,7 @@
   {{else}}
   <div class="panel-hint">
     Nur Lese-Recht: zum Eintragen der Noten bitte
-    <a href="/auth/login">anmelden</a>.
+    <a href="{{.Auth.LoginURL}}">{{if eq .Auth.LoginURL "/access"}}Bewertungs-Passwort eingeben{{else}}anmelden{{end}}</a>.
   </div>
   {{end}}
 </div>
