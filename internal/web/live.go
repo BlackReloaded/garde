@@ -253,6 +253,18 @@ func (a *App) score(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Richter-Nummer zu hoch", http.StatusBadRequest)
 		return
 	}
+	// Optionaler Client-Zeitstempel „at" (Offline-Outbox): Das Gerät merkt
+	// sich den Erfassungszeitpunkt einer Note und schickt ihn beim Nachholen
+	// mit. Nur plausible Werte akzeptieren (nicht in der Zukunft, höchstens
+	// 24 h alt); sonst zählt die aktuelle Zeit.
+	at := time.Now()
+	if vs := strings.TrimSpace(r.Form.Get("at")); vs != "" {
+		if t, err := time.Parse(time.RFC3339Nano, vs); err == nil {
+			if age := time.Since(t); age > -5*time.Minute && age < 24*time.Hour {
+				at = t
+			}
+		}
+	}
 	if valueStr == "" {
 		if err := a.store.ClearScore(pid, judge); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -264,7 +276,7 @@ func (a *App) score(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Wert muss 0–100 sein", http.StatusBadRequest)
 			return
 		}
-		if err := a.store.SetScore(pid, judge, value); err != nil {
+		if err := a.store.SetScoreAt(pid, judge, value, at); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

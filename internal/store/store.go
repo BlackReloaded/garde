@@ -703,11 +703,18 @@ func (s *Store) MoveParticipant(id int64, dir int) error {
 
 // SetScore setzt (bzw. überschreibt) die Note von judge (1..n) für einen Teilnehmer.
 func (s *Store) SetScore(participantID int64, judge, value int) error {
+	return s.SetScoreAt(participantID, judge, value, time.Now())
+}
+
+// SetScoreAt setzt eine Note mit vorgegebenem Zeitpunkt. Genutzt für die
+// Offline-Outbox: Nachgesandte Eingaben behalten ihren Erfassungszeitpunkt,
+// damit „zuletzt bewertet" und Zeitplan-ETA der echten Reihenfolge folgen.
+func (s *Store) SetScoreAt(participantID int64, judge, value int, at time.Time) error {
 	_, err := s.db.Exec(`
 		INSERT INTO score(participant_id, judge, value, updated_at) VALUES(?,?,?,?)
 		ON CONFLICT(participant_id, judge)
 		DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-		participantID, judge, value, time.Now().Format(time.RFC3339Nano))
+		participantID, judge, value, at.Format(time.RFC3339Nano))
 	return err
 }
 

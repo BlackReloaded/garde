@@ -80,12 +80,267 @@
   });
 
   // Nach jedem Request: (ggf.) Drafts wiederherstellen; nach /score das
-  // nächste freie Richter-Feld fokussieren.
+  // nächste freie Richter-Feld fokussieren. Ein erfolgreicher Request (egal
+  // ob Score-POST oder Polling) zeigt außerdem: die Strecke geht wieder →
+  // wartende Offline-Noten hinterher schicken.
   document.addEventListener('htmx:afterRequest', function (e) {
     var cfg = e.detail && e.detail.requestConfig;
     var path = cfg ? cfg.path : '';
     restoreDrafts();
     if (path.indexOf('/score') >= 0) { setTimeout(focusNextJudge, 80); }
+    var xhr = e.detail && e.detail.xhr;
+    if (xhr && xhr.status >= 200 && xhr.status < 400) {
+      if (down) { down = false; }
+      if (queue.length) scheduleSync();
+    }
+  });
+
+  // OOB-Antwort (Rangliste, Statistik, Zeitplan, ggf. Panel) einsetzen.
+  // Genutzt von HTMX-Antworten und vom Offline-Nachsynclauf; swapPanel=false
+  // lässt das Eingabepanel stehen (Touch: das focusierte Feld läge im
+  // ausgetauschten Panel, Fokus und Tastatur wären verloren).
+  function applyScoreReply(html, swapPanel) {
+    var tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    var blocks = tpl.content.querySelectorAll('[hx-swap-oob]');
+    for (var i = 0; i < blocks.length; i++) {
+      var block = blocks[i];
+      var cur = document.getElementById(block.id);
+      if (!cur || !block.innerHTML) continue;
+      if (block.id === 'scorepanel') {
+        if (!swapPanel) continue;
+        // Panel-Element komplett ersetzen: der MutationObserver unten
+        // erkennt den Wechsel und zielt danach aufs erste freie Feld.
+        var fresh = document.createElement('div');
+        fresh.id = 'scorepanel';
+        fresh.innerHTML = block.innerHTML;
+        if (window.htmx && htmx.process) htmx.process(fresh);
+        cur.replaceWith(fresh);
+      } else {
+        cur.innerHTML = block.innerHTML;
+      }
+    }
+    updateEdgeHints();
+  }
+
+  // ---------- Offline-Outbox ----------
+  // Fällt die Verbindung weg oder ist der Server nicht erreichbar, fallen
+  // Noten nicht weg: Sie landen in einer Warteschlange (localStorage) und
+  // werden bei funktionierender Verbindung nacheinander an /score
+  // nachgeschickt – mit ihrem ursprünglichen Erfassungszeitpunkt im Feld
+  // "at", damit „zuletzt bewertet" und ETA der echten Reihenfolge folgen. Antworten mit
+  // HTTP-Fehler (z. B. 403 „Turnier beendet") entfernen den Eintrag und
+  // warnen den Richter – Daten dürfen nicht sang- und klanglos verschwinden.
+  var down = false;   // letzte Anfrage ist nachweislich fehlgeschlagen
+  var syncing = false;
+  var queue = [];
+  try {
+    queue = JSON.parse(localStorage.getItem('garde.outbox.v1')) || [];
+  } catch (_) { queue = []; }
+  function saveQueue() {
+    try { localStorage.setItem('garde.outbox.v1', JSON.stringify(queue)); }
+    catch (_) { /* private-Mode etc.: Warteschlange nur im Speicher */ }
+  }
+  function enqueue(key, fields) {
+    for (var i = 0; i < queue.length; i++) {
+      // Dasselbe Feld erneut bearbeitet: neuer Wert ersetzt den alten
+      // Eintrag an Ort und Stelle (Eingabereihenfolge = Nachspielreihenfolge).
+      if (queue[i].k === key) {
+        queue[i] = { k: key, f: fields, t: new Date().toISOString() };
+        saveQueue();
+        return;
+      }
+    }
+    if (queue.length >= 600) return; // Vollschutz, praktisch unerreichbar
+    queue.push({ k: key, f: fields, t: new Date().toISOString() });
+    saveQueue();
+  }
+  function dequeue(key) {
+    for (var i = 0; i < queue.length; i++) {
+      if (queue[i].k === key) { queue.splice(i, 1); saveQueue(); return; }
+    }
+  }
+  // Score-Formular -> Warteschlangeneintrag (Schlüssel: Teilnehmer|Richter,
+  // Summenfeld: …|total). Leerer Wert bleibt erhalten: er löscht beim
+  // Nachschicken die Note, genau wie online.
+  function formEntry(form) {
+    var pid = form.querySelector('input[name=participant_id]');
+    var j = form.querySelector('input[name=judge]');
+    if (!pid || !pid.value) return null;
+    var f = {};
+    var ins = form.querySelectorAll('input');
+    var hasField = false;
+    for (var i = 0; i < ins.length; i++) {
+      if (!ins[i].name) continue;
+      if (ins[i].name === 'value' || ins[i].name === 'total_override') {
+        hasField = true;
+      }
+      f[ins[i].name] = ins[i].value;
+    }
+    if (!hasField) return null;
+    return { k: pid.value + '|' + (j ? j.value : 'total'), f: f };
+  }
+  function entryLabel(it) {
+    return it.f.judge
+      ? 'Richter ' + it.f.judge + ' · Teilnehmer ' + it.f.participant_id
+      : 'Summe · Teilnehmer ' + it.f.participant_id;
+  }
+
+  var bar = null;
+  function setBar(text, cls) {
+    if (!document.getElementById('scorepanel')) return; // nur Live-Ansicht
+    if (!bar) {
+      bar = document.createElement('div');
+      document.body.appendChild(bar);
+    }
+    if (!text) { bar.style.display = 'none'; return; }
+    bar.textContent = text;
+    bar.className = 'netbar' + (cls ? ' ' + cls : '');
+    bar.style.display = 'block';
+  }
+  function refreshBar() {
+    if (syncing) return;
+    if (!navigator.onLine || down) {
+      setBar(queue.length
+        ? 'Offline · ' + queue.length + ' Bewertung(en) warten'
+        : 'Verbindung unterbrochen', 'warn');
+    } else if (queue.length) {
+      setBar('Sende ' + queue.length + ' Bewertung(en) …', 'sync');
+      scheduleSync();
+    } else {
+      setBar('', '');
+    }
+  }
+
+  var syncTimer = null;
+  function scheduleSync() {
+    if (syncTimer) return;
+    syncTimer = setTimeout(function () {
+      syncTimer = null;
+      syncNow();
+    }, 250);
+  }
+
+  async function syncNow() {
+    if (syncing || queue.length === 0) return;
+    // Ohne Eingaberechte (keine /score-Formulare im Panel) bringt Nachsenden
+    // nichts – es würde höchst zwischen Login und Live-Ansicht hinwerfen.
+    // (Bewusst der allgemeine [hx-post]-Selektor: der exakte String taucht
+    // sonst im Seiten-Quelltext auf und verwischt String-Tests.)
+    if (!document.querySelector('#scorepanel form[hx-post]')) return;
+    syncing = true;
+    setBar('Sende ' + queue.length + ' Bewertung(en) …', 'sync');
+    var fail = [];
+    var stopped = false;
+    while (queue.length > 0 && !stopped) {
+      var it = queue[0];
+      var body = new URLSearchParams();
+      for (var k in it.f) { body.set(k, it.f[k]); }
+      body.set('at', it.t); // Original-Erfassungszeit (Server prüft Plausibilität)
+      var res;
+      try {
+        res = await fetch('/score', {
+          method: 'POST',
+          headers: { 'HX-Request': 'true' },
+          body: body,
+        });
+      } catch (_) {
+        stopped = true; // immer noch keine Verbindung – Warteschlange bleibt
+        break;
+      }
+      var redir = res.headers.get('HX-Redirect');
+      if (redir) {
+        // Login abgelaufen: Warteschlange bleibt erhalten, erst neu anmelden.
+        syncing = false;
+        window.location = redir;
+        return;
+      }
+      dequeue(it.k);
+      if (!res.ok) fail.push(entryLabel(it) + ' (HTTP ' + res.status + ')');
+    }
+    syncing = false;
+    down = stopped;
+    if (!stopped) {
+      //Nach der vollständigen Übertragung Listen + Panel selbst auffrischen
+      // (sonst geschieht das erst mit dem nächsten 5-Sekunden-Polling): mit
+      // sel kommt die Antwort inklusive neuem Panel, womit auch die
+      // „ausstehend"-Markierungen verschwinden.
+      var wrap = document.querySelector('.wrap');
+      var url = wrap ? (wrap.getAttribute('hx-get') || '') : '';
+      var selEl = document.querySelector('#scorepanel select[name=sel]');
+      if (url && selEl) url += '&sel=' + encodeURIComponent(selEl.value);
+      if (url) {
+        try {
+          var r = await fetch(url, { headers: { 'HX-Request': 'true' } });
+          if (r.ok) {
+            var html = await r.text();
+            if (coarse) {
+              // Touch: Panel stehen lassen – ein Austausch würde die softer
+              // Tastatur zuklappen, wenn gerade mitten in der Verbindung
+              // zurückkam weitergetippt wurde. Nur Listen/Status auffrischen
+              // und die Markierungen von Hand berichtigen: was den POST durch
+              // ist, steht jetzt auf dem Server (grün), geleerte Felder leer.
+              applyScoreReply(html, false);
+              var panel = document.getElementById('scorepanel');
+              if (panel) {
+                panel.querySelectorAll('input.queued').forEach(function (f) {
+                  f.classList.remove('queued');
+                  if (f.value === '') f.classList.remove('filled');
+                  else f.classList.add('filled');
+                });
+              }
+            } else {
+              applyScoreReply(html, true);
+            }
+          }
+        } catch (_) {}
+      }
+    }
+    if (fail.length) {
+      alert('Diese Bewertungen konnten nicht gespeichert werden:\n'
+        + fail.join('\n'));
+    }
+    refreshBar();
+  }
+
+  // Netzwerkfehler im Touch-Pfad (fetch statt HTMX): wie netFail, nur dass
+  // hier das fokussierte Feld (mark) bekannt ist und direkt markiert wird.
+  function failScore(form, mark) {
+    down = true;
+    var ent = formEntry(form);
+    if (ent) {
+      enqueue(ent.k, ent.f);
+      if (mark) mark.classList.add('queued');
+    }
+    refreshBar();
+  }
+
+  // Netzwerkfehler im HTMX-Pfad (Desktop-Formularsubmit + Polling): Note in
+  // die Warteschlange, Feld als „ausstehend" markieren, Statusleiste zeigen.
+  function netFail(e) {
+    down = true;
+    var t = e.target;
+    if (t && t.tagName === 'FORM' && t.getAttribute('hx-post') === '/score') {
+      var ent = formEntry(t);
+      if (ent) {
+        enqueue(ent.k, ent.f);
+        t.querySelectorAll('input[name=value], input[name=total_override]')
+          .forEach(function (inp) {
+            if (inp.value !== '') inp.classList.add('queued');
+          });
+      }
+    }
+    refreshBar();
+  }
+  document.addEventListener('htmx:sendError', netFail);
+  document.addEventListener('htmx:sendAbort', netFail);
+  document.addEventListener('htmx:timeout', netFail);
+
+  // WLAN/Mobilfunk wieder da: Nachsynclauf anstoßen. Ist die Strecke trotzdem
+  // noch tot, bricht syncNow beim ersten fetch ab und die Leiste bleibt rot.
+  window.addEventListener('online', function () {
+    down = false;
+    refreshBar();
   });
 
   // Läuft bei einem View-Wechsel (z. B. Disziplin) noch ein Request an
@@ -93,6 +348,10 @@
   // seine Antwort die neue Ansicht temporär mit alten Daten überschreiben.
   var inflight = new WeakMap(); // Element -> xhr (nur Refresh-Requests)
   document.addEventListener('htmx:beforeRequest', function (e) {
+    var xhr = e.detail && e.detail.xhr;
+    // Hängende Requests auf wackeliger Strecke (z. B. WLAN angemeldet, aber
+    // tot) nach 8 s als Fehler behandeln → Offline-Pfad mit Warteschlange.
+    if (xhr) xhr.timeout = 8000;
     var elt = e.target;
     if (elt && elt.getAttribute &&
         (elt.getAttribute('hx-get') || '').indexOf('/partials/refresh') === 0) {
@@ -131,34 +390,6 @@
       return null;
     }
 
-    // OOB-Antwort von /score manuell einsetzen (statt HTMX-Swap), damit das
-    // Score-Panel bei laufenden Eingaben ausgelassen werden kann: Sein
-    // innerHTML wäre sonst das fokussierte Feld – würde es mit dem Panel
-    // ausgetauscht, fällt der Fokus auf <body> und die Tastatur schließt.
-    function applyScoreReply(html, swapPanel) {
-      var tpl = document.createElement('template');
-      tpl.innerHTML = html;
-      var blocks = tpl.content.querySelectorAll('[hx-swap-oob]');
-      for (var i = 0; i < blocks.length; i++) {
-        var block = blocks[i];
-        var cur = document.getElementById(block.id);
-        if (!cur || !block.innerHTML) continue;
-        if (block.id === 'scorepanel') {
-          if (!swapPanel) continue;
-          // Panel-Element komplett ersetzen: der MutationObserver unten
-          // erkennt den Wechsel und zielt danach aufs erste freie Feld.
-          var fresh = document.createElement('div');
-          fresh.id = 'scorepanel';
-          fresh.innerHTML = block.innerHTML;
-          if (window.htmx && htmx.process) htmx.process(fresh);
-          cur.replaceWith(fresh);
-        } else {
-          cur.innerHTML = block.innerHTML;
-        }
-      }
-      updateEdgeHints();
-    }
-
     function sendScore(form, swapPanel, mark) {
       var body = new URLSearchParams();
       var inputs = form.querySelectorAll('input');
@@ -172,7 +403,7 @@
       }).then(function (res) {
         var redir = res.headers.get('HX-Redirect');
         if (redir) { window.location = redir; return null; } // Session abgelaufen
-        if (!res.ok) return null;
+        if (!res.ok) return null; // Server-Antwort mit Fehler: nicht nachspielbar
         return res.text();
       }).then(function (html) {
         if (!html) return;
@@ -193,7 +424,10 @@
             else mark.classList.add('filled');
           }
         }
-      })['catch'](function () {});
+        // Verbindung hat gerade geklappt: evtl. ältere Warteschlangen-Einträge
+        // sofort hinterher schicken, statt auf das nächste Polling zu warten.
+        if (queue.length) scheduleSync();
+      })['catch'](function () { failScore(form, mark); });
     }
 
     function commitScoreField(inp, panel, form, moveFocus) {
@@ -354,6 +588,13 @@
     // obwohl man evtl. nur die Live-Ansicht anschaut.
     if (!coarse) setTimeout(focusNextJudge, 300);
     updateEdgeHints();
+
+    // Offline-Status: Leiste zeigen und, wenn schon etwas in der
+    // Warteschlange liegt, den Nachsynclauf anstoßen (bei fehlender
+    // Verbindung scheitert er harmlos und wartet auf das nächste Polling
+    // bzw. das online-Ereignis).
+    refreshBar();
+    if (navigator.onLine && queue.length) setTimeout(syncNow, 800);
 
     // iOS/Android: Klappt die Tastatur auf, kann das fokussierte Feld
     // darunter liegen – dann in die Mitte des sichtbaren Bereichs ziehen.

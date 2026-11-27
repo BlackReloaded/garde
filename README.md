@@ -368,6 +368,43 @@ Markierung steht, sind **für alle** Änderungen gesperrt:
 Die Markierung ist eine Spalte `finished` an `competition` (beim ersten
 Start automatisch nachgerüstet) und bleibt damit über Neustarts erhalten.
 
+## Offline-Mitschrift (Outbox)
+
+Reißt während der Wertung die Verbindung zum Server ab (Keller-WLAN,
+Hotspot-Aussetzer), gehen Noten nicht verloren: Scheitert eine
+Noteneingabe am Netzwerk (Desktop: HTMX-Request, Touch: fetch; auch nach
+8 s Timeout gilt eine Anfrage als fehlgeschlagen), landet sie mit allen
+Formularfeldern in einer Warteschlange im Browser (localStorage,
+überlebt Seiten-Neuladen). Eine schwebende Leiste zeigt dann
+"Offline · n Bewertungen warten", betroffene Eingabefelder sind orange
+(`pending`) statt grün markiert.
+
+Sobald wieder eine Anfrage durchkommt (Polling, `online`-Event oder
+ein erfolgreicher Score-POST), arbeitet die App die Queue der Reihe nach
+ab: nacheinander `POST /score`, danach ein Refresh, der Ranglisten und
+Panel auf den echten Serverstand zieht. Details:
+
+- Jeder Eintrag trägt seinen **Erfassungszeitpunkt** (`at`-Feld). Der
+  Server übernimmt ihn als `updated_at`, wenn er plausibel ist (nicht in
+  der Zukunft, höchstens 24 h alt) – Zeitplan-ETA und die graue
+  "zuletzt bewertet"-Markierung folgen damit der echten Reihenfolge,
+  nicht dem Sync-Moment.
+- Dasselbe Feld wird offline mehrfach bearbeitet: nur der **letzte**
+  Wert zählt und wird nachgesandt (Eintrag wird in der Queue ersetzt).
+- Leerer Wert bleibt ein Lösch-Auftrag: beim Nachschicken wird die Note
+  auf dem Server gelöscht, wie online.
+- Antwortt der Server beim Nachsenden mit einem Fehler (z. B. 403
+  "Turnier beendet"), wird der Eintrag verworfen und der Richter
+  per Dialog gewarnt – stille Datenverluste gibt es nicht.
+- Login abgelaufen (Antwort mit `HX-Redirect`): die Queue bleibt
+  erhalten, die App führt erst zur Anmeldung; nach dem Einloggen wird
+  automatisch weitergesynct.
+
+Grenzen: Andere Bildschirme (Publikums-Rangliste) sehen die Puffer-Noten
+erst nach dem Sync – LIVE-Scoring ohne Netz ist nicht möglich. Und die
+Queue hängt am Browser-Gerät: Wird der Tab im privaten Modus geschlossen,
+ist sie weg.
+
 ## CSV-Import / Export (Admin-Bereich)
 
 ```

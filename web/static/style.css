@@ -398,6 +398,33 @@ button, a.btn {
 }
 .panel-hint { margin-top: 12px; font-size: 13px; color: var(--muted); }
 
+/* ---------- Offline-Outbox ---------- */
+/* Noch nicht übertragene Note: anders als .filled (grün = gespeichert)
+   orange, damit der Richter den Unterschied auf einen Blick sieht.
+   (Nicht zu verwechseln mit tr.pending im Zeitplan = "noch nicht bewertet".) */
+.judge-cell input[type=number].queued,
+.total-row input[type=number].queued {
+  border-color: #e2b06a;
+  background: #fdf1de;
+  color: #8a5a00;
+}
+/* Schwebende Statusleiste (per JS in base.html erzeugt) */
+.netbar {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: #a3462b;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, .35);
+}
+.netbar.sync { background: var(--accent); }
+
 /* ---------- Berechtigungen (Rollen-Listen) ---------- */
 .role-list {
   margin: 14px 0 4px;
