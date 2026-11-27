@@ -160,7 +160,12 @@ type LiveData struct {
 	NumJ      int
 
 	LastScoreAt *time.Time
-	Finished    bool // Zeitplan durchgelaufen (alle bewertet)
+	// LastScoredID: Teilnehmer mit der zeitlich letzten Noteneingabe in
+	// dieser Disziplin (0 = noch keine Note). Wird in Rangliste und
+	// „In Bewertung" grau hinterlegt, damit der zuletzt bewertete Auftritt
+	// schneller zu finden ist.
+	LastScoredID int64
+	Finished     bool // Zeitplan durchgelaufen (alle bewertet)
 	// CompFinished: Turnier ist vom Admin als „beendet" (read-only)
 	// markiert – das Punkteeingabe-Panel zeigt dann nur noch einen Hinweis.
 	CompFinished bool
@@ -402,6 +407,20 @@ func (a *App) loadLive(discID int64, now time.Time) (*LiveData, error) {
 
 	if t, ok, _ := a.store.LastScoreTime(d.ID); ok {
 		ld.LastScoreAt = &t
+	}
+
+	// Zuletzt bewerteter Auftritt: der Teilnehmer mit der zeitlich letzten
+	// Note (über alle seine Noten hinweg, verglichen mit dem bisherigen
+	// Maximum). Zählt auch spätere Korrekturen – gemeint ist der Auftritt,
+	// an dem zuletzt gearbeitet wurde.
+	var lastAt time.Time
+	for _, p := range ld.Active {
+		for _, s := range p.Scores {
+			if s.UpdatedAt.After(lastAt) {
+				lastAt = s.UpdatedAt
+				ld.LastScoredID = p.ID
+			}
+		}
 	}
 
 	// Ranglisten.

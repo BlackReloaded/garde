@@ -477,6 +477,11 @@ tr.current-row td { background: var(--accent-soft); }
 tr.current-row td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
 tr.pending td { color: var(--muted); }
 tr.withdrawn-row td { color: var(--muted); }
+/* Zuletzt bewerteter Auftritt: grauer Zeilen-Hintergrund + grauer Kantenstrich
+   (wie current-row), damit er in Rangliste und „In Bewertung" ins Auge fällt.
+   Etwas dunkler als --grey-soft, damit er sich von Medaillen/Badges abhebt. */
+tr.last-scored td { background: #e7ebf1; }
+tr.last-scored td:first-child { box-shadow: inset 4px 0 0 #c4ccd6; }
 td .score-dropped { text-decoration: line-through; color: var(--muted); }
 td .total-val { font-size: 18px; font-weight: 800; }
 .rank-cell { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }

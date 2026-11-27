@@ -22,7 +22,7 @@
     </thead>
     <tbody>
     {{range $row := .Plain}}
-      <tr>
+      <tr{{if eq $row.P.ID $.LastScoredID}} class="last-scored" title="Zuletzt bewertet"{{end}}>
         <td class="num rank-cell"><span class="rank-medal{{if eq $row.Rank 1}} m1{{else if eq $row.Rank 2}} m2{{else if eq $row.Rank 3}} m3{{end}}">{{$row.Rank}}</span></td>
         <td class="name-cell"><span class="startnr">{{$row.P.StartNr}}</span>{{$row.P.Name}}</td>
         <td class="verein-cell">{{$row.P.Verein}}</td>
@@ -62,7 +62,7 @@
     </thead>
     <tbody>
     {{range $row := .Star}}
-      <tr>
+      <tr{{if eq $row.P.ID $.LastScoredID}} class="last-scored" title="Zuletzt bewertet"{{end}}>
         <td class="num rank-cell"><span class="rank-medal{{if eq $row.Rank 1}} m1{{else if eq $row.Rank 2}} m2{{else if eq $row.Rank 3}} m3{{end}}">{{$row.Rank}}</span></td>
         <td class="name-cell"><span class="startnr">{{$row.P.StartNr}}</span><span class="star">★</span> {{$row.P.Name}}</td>
         <td class="verein-cell">{{$row.P.Verein}}</td>
