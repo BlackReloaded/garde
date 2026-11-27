@@ -38,3 +38,7 @@ Auslosung*.pdf
 
 # Let's-Encrypt-Zertifikate (Autocert-Cache, s. -tls-cache)
 acme-cache/
+
+# Turnierdaten (Personendaten aus Losungs-PDF/CSV) – nie committen
+*.pdf
+seed-*.csv
